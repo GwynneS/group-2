@@ -1,0 +1,81 @@
+body
+{
+    margin: 0;
+    padding: 0;
+    height: 100vh;
+    background-color: CDB4DB;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* The Window Container */
+.window-container {
+    width: 500px;
+    max-width: 90%;
+    height: 320px;
+    background: #ffffff;
+    border-radius: 8px;
+    overflow: hidden; /* Clips content to match border radius */
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15), 
+                0 1px 3px rgba(0, 0, 0, 0.1);
+    display: flex;
+    flex-direction: column;
+}
+
+/* The Title Bar */
+.window-header {
+    background: #1e293b; /* Dark slate background */
+    color: #ffffff;
+    padding: 10px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    user-select: none; /* Prevents text highlighting when interacting */
+}
+
+.window-title {
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+}
+
+/* Window Controls (The Dots/Buttons) */
+.window-controls {
+    display: flex;
+    gap: 8px;
+}
+
+.control-btn {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    transition: filter 0.2s ease;
+}
+
+.control-btn:hover {
+    filter: brightness(0.8);
+}
+
+/* Mac-style Window Colors */
+.control-btn.close { background-color: #ef4444; }     /* Red */
+.control-btn.minimize { background-color: #f59e0b; }  /* Yellow */
+.control-btn.maximize { background-color: #10b981; }  /* Green */
+
+/* The Main Window Body */
+.window-content {
+    padding: 20px;
+    flex: 1; /* Causes content area to fill remaining vertical space */
+    overflow-y: auto; /* Adds a scrollbar if content overflows */
+    color: #334155;
+    line-height: 1.6;
+}
+
+.window-content h3 {
+    margin-top: 0;
+    color: #0f172a;
+}
