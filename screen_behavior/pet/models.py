@@ -26,6 +26,14 @@ class PetState:
 
     play_dead_active: bool = False
 
+    # Short burst of extra energy/excitement. Any interaction can set it via
+    # InteractionEffect.hyper_seconds; NeedsSystem.tick counts it down.
+    hyper_seconds_remaining: float = 0.0
+
+    @property
+    def is_hyper(self) -> bool:
+        return self.hyper_seconds_remaining > 0
+
     def clamp_all(self) -> None:
         self.hunger = clamp(self.hunger)
         self.energy = clamp(self.energy)

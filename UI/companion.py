@@ -32,7 +32,6 @@ from animation_bridge import ANIMATION_LABELS, animation_for_update  # noqa: E40
 from screen_behavior.awareness.models import RawScreenSnapshot, WindowInfo  # noqa: E402
 from screen_behavior.awareness.service import AwarenessService  # noqa: E402
 from screen_behavior.integration.brain import CompanionBrain  # noqa: E402
-from screen_behavior.pet.feeding import FoodType  # noqa: E402
 from screen_behavior.pet.interactions import InteractionEffect  # noqa: E402
 
 BRAIN_TICK_SECONDS = 1.0
@@ -208,7 +207,7 @@ class CameraWorker:
 class CompanionService:
     """Owns the brain, the optional camera, and the state everyone reads."""
 
-    def __init__(self, native_awareness: bool = True) -> None:
+    def __init__(self, native_awareness: bool = True, enable_microphone: bool = False) -> None:
         self._lock = threading.RLock()
         self.browser_backend = BrowserActivityBackend()
         self.awareness_source = "browser"
@@ -223,7 +222,8 @@ class CompanionService:
         if awareness is None:
             awareness = AwarenessService(backend=self.browser_backend, start_keyboard_monitor=False)
 
-        self.brain = CompanionBrain(awareness=awareness)
+        # enable_microphone: loudness only, never recorded; a yell wakes play-dead.
+        self.brain = CompanionBrain(awareness=awareness, enable_microphone=enable_microphone)
         self.camera = CameraWorker(self._on_body)
         self._update = None
         self._reaction: Reaction | None = None
@@ -267,17 +267,29 @@ class CompanionService:
         else:
             self.browser_backend.note_input()
 
-    def interact(self, action: str, food: str = "dry") -> dict:
-        """Apply a user interaction. Returns {accepted, message}."""
+    def record_browser_activity(self, payload: dict) -> None:
+        """Extension heartbeat: tab title/host plus counts (clicks, keys,
+        copies, pastes, scroll, active time). Never key identities or text."""
+        if not payload.get("left"):
+            self.report_browser(str(payload.get("title", ""))[:200], str(payload.get("host", ""))[:100])
+        record = getattr(self.brain.awareness, "record_browser_activity", None)
+        if callable(record):
+            with self._lock:
+                record(payload)
+
+    def interact(self, action: str, food: str = "fish") -> dict:
+        """Apply a user interaction. Returns {accepted, message}.
+
+        Fish is the only food; `food` is accepted for compatibility and ignored.
+        """
         with self._lock:
             if action == "feed":
-                food_type = FoodType.WET if food == "wet" else FoodType.DRY
-                result = self.brain.feed(food_type)
+                result = self.brain.feed()
                 if result.accepted:
-                    self._react("happy", "Yum! Thank you~" if food_type == FoodType.DRY else "A treat!! Best day ever!", 3)
+                    self._react("happy", "Yum, fish! Thank you~", 3)
                     message = "fed"
                 else:
-                    self._react("sad", "I'm full..." if "full" in result.reason else "No treats left yet.", 3)
+                    self._react("sad", "I'm full...", 3)
                     message = result.reason
                 self._update = self.brain.update()
                 return {"accepted": result.accepted, "message": message}
@@ -335,7 +347,7 @@ class CompanionService:
         message = BEHAVIOR_MESSAGES.get(behavior, ANIMATION_LABELS[animation])
         if animation == "hungry":
             message = "I'm hungry... feed me?"
-        elif animation == "tired" and behavior != "sleep":
+        elif animation == "tired" and behavior not in ("sleep", "play_dead"):
             message = "So sleepy..."
         if reaction and time.monotonic() < reaction.until:
             animation, message = reaction.animation, reaction.message
@@ -352,13 +364,15 @@ class CompanionService:
                 "boredom": round(pet.boredom),
                 "mood": pet.mood.value,
                 "behavior": behavior,
+                "reason": decision.reason,
             },
             "activity": {
                 "type": update.screen.activity.value,
                 "confidence": round(update.screen.activity_confidence, 2),
                 "source": self.awareness_source,
+                "user_state": getattr(update.screen.user_state, "value", None),
             },
-            "feeding": {"wet_food_available": update.feeding.wet_food_available},
+            "feeding": {"food": "fish"},
             "camera": {"status": self.camera.status, "error": self.camera.error},
             "body": {
                 "state": body.state,

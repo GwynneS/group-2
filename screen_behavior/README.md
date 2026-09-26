@@ -90,43 +90,29 @@ python3 -m screen_behavior.demo_v04
 
 ### Running the whole app (UI + brain + extension)
 
-One server runs everything: the Buddy UI, chat, the extension download, and
-this companion brain.
+See the project README for the full picture. Short version:
 
 ```bash
-python3 UI/server.py          # then open http://127.0.0.1:8765
-python3 UI/server.py --mic    # also let a loud yell wake buddy from play-dead
-python3 UI/server.py --no-brain
+python3 UI/server.py --open          # http://127.0.0.1:8765
+python3 UI/server.py --camera --mic  # + webcam body tracking, + yell-to-wake
 ```
 
-How the pieces connect:
+`UI/server.py` runs `UI/companion.py` (the UI team's hub), which owns one
+`CompanionBrain` and ticks it every second. What this subsystem contributes
+to that hub:
 
-```text
- OS sensors ─┐                                   ┌─> UI/app.js       (character pose, caption,
- (screen,    │                                   │                    mood/needs panel, Feed fish)
- keyboard,   ├─> CompanionBrain ─> presenter ─> GET /api/state ─┼─> UI/animation.js (7 detailed animations)
- mouse, mic) │        ^                          │
-             │        │                          └─> extension background.js ─> buddy.js on every site
- extension ──┘        │                                              (sleep / wander / follow / cheer)
- heartbeats           │
- (host, title, ───────┘  POST /api/browser-activity
- clicks, keys,           POST /api/interact {"type": "pet"}   <- headpats (app page or any website)
- copies, pastes,         POST /api/feed                        <- Feed fish button
- scroll)                 POST /api/chat                        <- chat also counts as attention
-```
-
-- `screen_behavior/integration/presenter.py` is the only contract between the
-  brain and the animations. It maps each update to one of the 7
-  `UI/animation.js` states, a `pose` for `sprites.js`, and an `onpage_mode`
-  for the on-page buddy. Change the mapping there, not in the front ends.
-- The extension sends a heartbeat every 5s while a page is in view (counts
-  since the last heartbeat, host, title, scroll %). When the browser is in
-  front, its page title and host sharpen activity detection (e.g. YouTube →
-  video, Google Docs → studying). When OS keyboard monitoring is unavailable
-  (macOS permission not granted), in-browser key/copy/paste counts stand in.
-- Without the app running, the extension's buddy falls back to its own
-  wander/sleep behavior; without the brain (`--no-brain`), the UI still
-  works and `/api/state` reports `"brain": "offline"`.
+- `/api/state` reports the brain's behavior, the utility `reason`, needs,
+  mood, activity and `user_state`. `animation_for_update()`
+  (`integration/presenter.py`, re-exported by `animation_bridge.py`) maps a
+  brain update to one of the 7 emotions.
+- Feeding is `brain.feed()`: fish is the only food; the pet refuses when full.
+- `POST /api/browser-activity` receives the extension's 5-second heartbeats
+  (counts only: clicks, keys, copies, pastes, scroll, active time, plus tab
+  title/host) and feeds them to `AwarenessService.record_browser_activity()`.
+  The tab's title/host sharpens activity detection, and in-browser key counts
+  stand in for typing when OS keyboard monitoring isn't permitted.
+- `--mic` enables loudness detection (never recorded) so a yell wakes a pet
+  that's playing dead.
 
 ### Driving the UI from your own script
 
@@ -291,17 +277,67 @@ A new state must hold 5s before it's reported (AWAY/IDLE transitions are
 immediate). Read `update.screen.user_state` / `user_state_seconds`.
 Body tracking can call `brain.awareness.set_user_present(True/False/None)`.
 
-### Utility-scored behavior
-`pet/utility.py`. Every behavior gets a score each decision from needs, mood,
-user state, typing/mouse, distraction budget, and memory (recent behaviors
-×0.4). The highest eligible behavior wins; ones within 0.12 of the best are
-picked at random so buddy isn't robotic. Hard safety rules still come first
-(critically tired → sleep, critically lonely → ask for attention).
-`brain.behavior.score_all(pet, screen)` shows every score for debugging.
+### Utility behavior brain
 
-Also fixed: sleep now continues until energy reaches 60 (it used to nap 20s
-and re-trigger all day), and play-dead ends on its own after 90s if nobody
-yells.
+`BehaviorEngine.decide()` runs a fixed pipeline; the first stage that
+applies decides (`decision.source` says which):
+
+1. `play_dead`: loud-voice wake, 90s timeout, or keep playing dead
+2. `sleep`: stay asleep until energy reaches 75
+3. `urgent`: energy ≤ 18 → sleep; attention ≤ 18 or hunger ≥ 80 → ask for
+   attention. Urgent needs interrupt commitments.
+4. `commitment`: keep the current behavior until its commitment ends
+5. hard eligibility (excluded before scoring): min energy, cooldown,
+   distraction budget, and "not tired enough to nap" (energy ≥ 45)
+6. `utility`: every eligible behavior gets points (not a probability)
+7. controlled variation: behaviors within 12 points of the leader (and at
+   least 60% of its score) get lottery tickets in proportion to how close
+   they are; one is drawn with the engine's seeded RNG. A clearly worse
+   behavior can never win.
+
+Utility = labeled components, so every decision is explainable:
+
+```python
+d = brain.update().decision
+d.behavior_scores   # {Behavior.STUDY_WITH_USER: 83.0, Behavior.SIT_DOWN: 42.1, ...}
+d.score_breakdown   # {"base": 8, "context": 39, "focus": 34.2, "variation": -1.3}
+d.candidates        # the strong behaviors the pick was drawn from
+d.reason            # "keeping the user company while they work (context +39, focus +34)"
+```
+
+Components: `base`, `context` (activity fit × classifier confidence),
+`energy`/`tiredness`/`boredom`/`loneliness`/`affection`/`hunger`, `mood`,
+`special_mood`, `focus` (how engaged the user is in work: typing, confidence,
+session length, user state), `idle`, `mouse`, `hyper`, `distraction`
+(focus penalty + low budget + recent distracting behaviors), `repetition`,
+`recency`, `attention_request` (fades over 5 min after asking), `ignored`,
+`whim` (rare behaviors), `variation` (±3), `preference`.
+
+**Tuning:** every number is in `pet/utility_config.py`: one
+`BehaviorProfile` per behavior plus global weights and urgent thresholds.
+`BehaviorSpec` in `pet/config.py` still owns min energy, energy cost,
+commitment, cooldown, and the distracting flag.
+
+**Hyper:** `InteractionEffect(hyper_seconds=60)` makes buddy hyper (excited
+mood, energetic behaviors score higher) until it counts down. Whoever owns
+treats/events decides when; the brain only reacts.
+
+**Future personalization:** `BehaviorEngine(preference=fn)` takes
+`fn(behavior, scoring_context) -> points`, clamped to ±10, so a learned layer
+can nudge choices without ever overriding urgent needs or hard rules.
+
+**Brain simulator** (no UI, sensors, or animation):
+
+```bash
+python3 -m screen_behavior.demo_brain                    # all scenarios A-I
+python3 -m screen_behavior.demo_brain --scenario coding --scores 5
+python3 -m screen_behavior.demo_brain --list
+```
+
+Scenarios: long coding, going idle, video, high boredom, lonely, low
+energy, hyper, high affection, and 60 repeated cycles. Each row shows time,
+activity, energy/attention/hunger/boredom, mood, behavior, deciding stage,
+top scores, and reason; each scenario ends with a pattern summary.
 
 ### Simulation harness
 `simulation.py` runs the full pipeline on simulated time: hours in about a

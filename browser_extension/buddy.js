@@ -19,11 +19,6 @@
 // watching videos and so on. Headpats, pokes, feeding and copy/paste are
 // sent to the brain too.
 //
-// When the Buddy app is running, its companion brain decides what the buddy
-// does (sleep, wander, follow the cursor, cheer, ask for attention) through
-// the `onpage_mode` in GET /api/state. Without the app, the buddy falls back
-// to wandering and dozing off on its own.
-//
 // Preference lives in storage.local under `buddy`:
 //   { character: "girl" | "boy" | null, visible: boolean }
 // and the last feeding time under `lastFed`. Changing either anywhere
@@ -46,8 +41,11 @@
   const WELCOME_AFTER_MS = 60_000;
   const HUNGRY_AFTER_MS = 45 * 60_000;
   const APP_POLL_MS = 4000;
+<<<<<<< HEAD
   const BRAIN_POLL_MS = 3000;
   const BRAIN_STALE_MS = 10_000;
+=======
+>>>>>>> 9b0637757641b51cd0079019b108ecf6b47ec0ad
   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const LINES = {
@@ -63,7 +61,6 @@
       hungry: ["Mochi is hungry... fish please?", "My tummy's rumbling~"],
       fed: ["Yum! Thank you~ ♥", "Fishies! Best buddy ever!"],
       idle: ["You're doing great!", "Remember to drink water~", "Focus mode: activated!", "Nya~"],
-      attention: ["Psst... pay attention to me~", "Headpat? Pretty please?", "Hey hey, look at me!"],
     },
     boy: {
       greet: ["Hey! I'm Kiko. Let's get stuff done.", "Kiko reporting for duty!"],
@@ -77,7 +74,6 @@
       hungry: ["Any chance of a snack?", "Kinda hungry over here..."],
       fed: ["Oh, fish! Thanks.", "Mrrp. That hit the spot."],
       idle: ["You've got this.", "Stretch break soon?", "Solid work so far.", "Mrrp."],
-      attention: ["...Hey. Got a sec?", "I could use a headpat. Just saying.", "Mrrp? Over here."],
     },
   };
 
@@ -250,9 +246,6 @@
     lastInput: Date.now(),
     hiddenAt: 0,
     mouse: null,
-    brain: null, // latest brain state from the Buddy app, or null
-    brainAt: 0,
-    brainMode: null,
   };
   const reaction = { emotion: null, until: 0 };
   let bubbleTimer = 0;
@@ -366,6 +359,7 @@
     return false;
   }
 
+<<<<<<< HEAD
   // --- Companion brain -----------------------------------------------------
 
   function brainFresh() {
@@ -421,11 +415,12 @@
   }
   setInterval(pollBrain, BRAIN_POLL_MS);
 
+=======
+>>>>>>> 9b0637757641b51cd0079019b108ecf6b47ec0ad
   function update(now, dt) {
     if (drag) return false;
 
-    // Without the brain, doze off after a while of no input.
-    if (!brainFresh() && st.mode !== "sleep" && st.mode !== "chat" && Date.now() - st.lastInput > SLEEP_AFTER_MS) {
+    if (st.mode !== "sleep" && st.mode !== "chat" && Date.now() - st.lastInput > SLEEP_AFTER_MS) {
       setMode("sleep");
       say("Zzz...", 0);
     }
@@ -501,7 +496,10 @@
     last = 0;
     requestAnimationFrame(frame);
     pollApp();
+<<<<<<< HEAD
     pollBrain();
+=======
+>>>>>>> 9b0637757641b51cd0079019b108ecf6b47ec0ad
   }
 
   function stop() {

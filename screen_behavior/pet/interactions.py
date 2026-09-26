@@ -20,6 +20,8 @@ class InteractionEffect:
     attention_delta: float = 0.0
     affection_delta: float = 0.0
     boredom_delta: float = 0.0
+    # Make buddy hyper for this many seconds (0 = no change).
+    hyper_seconds: float = 0.0
 
 
 def apply_interaction_effect(
@@ -31,4 +33,8 @@ def apply_interaction_effect(
     state.attention += effect.attention_delta
     state.affection += effect.affection_delta
     state.boredom += effect.boredom_delta
+    state.hyper_seconds_remaining = max(
+        state.hyper_seconds_remaining,
+        effect.hyper_seconds,
+    )
     state.clamp_all()

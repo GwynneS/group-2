@@ -1,11 +1,11 @@
 // Receives session records from content.js, and headpats and chat messages
-// from buddy.js / bridge.js, and saves them to extension storage. Forwards
-// live activity heartbeats and headpats to the companion brain in the Buddy
-// app, and relays the brain's state back to the on-page buddies. Writes are
+// from buddy.js / bridge.js, and saves them to extension storage. Writes are
 // queued so records from several tabs closing at once don't overwrite each
 // other. Also keeps the toolbar icon in sync with the chosen buddy.
 //
 // Talks to the local Buddy app (UI/server.py) when it's running:
+//   heartbeat  -> /api/browser-activity  counts only (clicks, keys, copies,
+//                                 pastes, scroll, active time) every 5s
 //   chat       -> /api/chat       replies in character
 //   appState   -> /api/presence   reports the focused tab's title and host so
 //                                 the companion brain knows what you're doing,
@@ -35,31 +35,16 @@ const APP_URL = "http://127.0.0.1:8765";
 
 let writeQueue = Promise.resolve();
 
-// --- Companion brain (runs inside the Buddy app) ----------------------------
+// --- Activity heartbeats -----------------------------------------------------
 
-// Fire-and-forget: the app may not be running, and that's fine.
+// content.js sends a count-only heartbeat every 5s while a page is in view;
+// forward it to the companion brain. Fire-and-forget: the app may be off.
 function toBrain(path, body) {
   return fetch(`${APP_URL}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   }).catch(() => {});
-}
-
-// Many tabs ask for the brain state; share one request every couple of seconds.
-let brainCache = { at: 0, data: null, pending: null };
-function brainState() {
-  if (Date.now() - brainCache.at < 2000) return Promise.resolve(brainCache.data);
-  if (brainCache.pending) return brainCache.pending;
-  brainCache.pending = fetch(`${APP_URL}/api/state`, { cache: "no-store" })
-    .then((res) => (res.ok ? res.json() : null))
-    .then((data) => (data?.brain === "offline" ? null : data))
-    .catch(() => null)
-    .then((data) => {
-      brainCache = { at: Date.now(), data, pending: null };
-      return data;
-    });
-  return brainCache.pending;
 }
 
 function enqueue(fn) {
@@ -149,12 +134,9 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     saveRecord({ ...msg.record, tabId: sender.tab?.id });
   } else if (msg?.type === "heartbeat" && msg.data) {
     toBrain("/api/browser-activity", msg.data);
-  } else if (msg?.type === "brainState") {
-    brainState().then(sendResponse);
-    return true;
   } else if (msg?.type === "pet") {
+    // Only counts the headpat; buddy.js / app.js tell the brain via "interact".
     countPet();
-    toBrain("/api/interact", { type: "pet" });
   } else if (msg?.type === "chat") {
     chat(msg.text).then(sendResponse);
     return true; // keep the channel open for the async reply

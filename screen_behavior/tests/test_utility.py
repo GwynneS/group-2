@@ -100,15 +100,18 @@ class UtilityScoringTests(unittest.TestCase):
         engine.memory.record_behavior(Behavior.STUDY_WITH_USER, 0)
         after = scores(PetState(), CODING, engine)[Behavior.STUDY_WITH_USER]
 
-        self.assertAlmostEqual(after, before * 0.4)
+        self.assertLess(after, before - 15)
 
     def test_decision_reason_explains_choice(self):
         engine = BehaviorEngine(rng=random.Random(5), clock=FakeClock())
 
         decision = engine.decide(PetState(), CODING)
 
-        self.assertEqual(decision.behavior, Behavior.STUDY_WITH_USER)
-        self.assertIn("work", decision.reason)
+        leader = max(decision.behavior_scores, key=decision.behavior_scores.get)
+        self.assertEqual(leader, Behavior.STUDY_WITH_USER)
+        self.assertIn(decision.behavior, decision.candidates)
+        if decision.behavior == Behavior.STUDY_WITH_USER:
+            self.assertIn("work", decision.reason)
 
 
 class EngineSafetyTests(unittest.TestCase):
@@ -138,7 +141,7 @@ class EngineSafetyTests(unittest.TestCase):
         clock.advance(60)
         self.assertEqual(engine.decide(pet, GAMING).behavior, Behavior.SLEEP)
 
-        pet.energy = 65
+        pet.energy = engine.sleep_until_energy + 1
         clock.advance(1)
         self.assertNotEqual(engine.decide(pet, GAMING).behavior, Behavior.SLEEP)
 

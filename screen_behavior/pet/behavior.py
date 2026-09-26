@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from time import monotonic
 from typing import Callable
 
@@ -15,10 +15,12 @@ from screen_behavior.pet.enums import BaseMood, Behavior, SpecialMood
 from screen_behavior.pet.memory import BehaviorMemory, MemorySnapshot
 from screen_behavior.pet.models import PetState
 from screen_behavior.pet.utility import (
-    ScoredBehavior,
+    BehaviorScore,
+    PreferenceBonus,
+    UtilityScorer,
     build_context,
-    score_behavior,
 )
+from screen_behavior.pet.utility_config import BehaviorUtilityConfig
 
 
 @dataclass(slots=True)
@@ -42,6 +44,17 @@ class BehaviorDecision:
     cooldown_remaining_seconds: float
     distraction_budget: float = 100.0
 
+    # --- Debugging / tuning (optional for consumers) -----------------------
+    # Which stage decided: "utility", "commitment", "urgent", "sleep",
+    # "play_dead", or "fallback".
+    source: str = "utility"
+    # Utility of every eligible behavior this decision (utility source only).
+    behavior_scores: dict[Behavior, float] = field(default_factory=dict)
+    # Labeled points behind the chosen behavior's score.
+    score_breakdown: dict[str, float] = field(default_factory=dict)
+    # The strong candidates the final pick was drawn from.
+    candidates: list[Behavior] = field(default_factory=list)
+
 
 class BehaviorEngine:
     """
@@ -50,6 +63,15 @@ class BehaviorEngine:
     It chooses *intent only*. It does not animate the model or define frame
     timing. Commitment means "the brain intends to stay with this behavior
     for at least this long."
+
+    Decision pipeline (first stage that applies wins):
+      1. play-dead wake / timeout / hold
+      2. stay asleep until rested
+      3. urgent biological needs (may interrupt a commitment)
+      4. commitment to the current behavior
+      5. hard eligibility (min energy, cooldown, distraction budget)
+      6. utility scoring (pet/utility.py, tuned in pet/utility_config.py)
+      7. controlled variation among strong candidates
     """
 
     def __init__(
@@ -59,23 +81,39 @@ class BehaviorEngine:
         specs: dict[Behavior, BehaviorSpec] | None = None,
         budget: DistractionBudget | None = None,
         memory: BehaviorMemory | None = None,
-        near_best_margin: float = 0.12,
-        play_dead_max_seconds: float = 90.0,
-        sleep_until_energy: float = 60.0,
+        near_best_margin: float | None = None,
+        play_dead_max_seconds: float | None = None,
+        sleep_until_energy: float | None = None,
+        utility_config: BehaviorUtilityConfig | None = None,
+        preference: PreferenceBonus | None = None,
     ) -> None:
+        config = utility_config or BehaviorUtilityConfig()
+        if near_best_margin is not None:
+            config = replace(config, near_best_margin=near_best_margin)
+        self.config = config
+        self.urgent = config.urgent
+
         self.rng = rng or random.Random()
         self.clock = clock
         self.specs = specs or BEHAVIOR_SPECS
         self.budget = budget or DistractionBudget()
-        self.memory = memory or BehaviorMemory()
-        self._last_decide: float | None = None
-        self.near_best_margin = near_best_margin
-        self.play_dead_max_seconds = play_dead_max_seconds
-        self.sleep_until_energy = sleep_until_energy
+        self.memory = memory or BehaviorMemory(history_size=config.history_size)
+        self.scorer = UtilityScorer(config, preference)
 
+        self.play_dead_max_seconds = (
+            play_dead_max_seconds
+            if play_dead_max_seconds is not None
+            else self.urgent.play_dead_max_seconds
+        )
+        self.sleep_until_energy = (
+            sleep_until_energy
+            if sleep_until_energy is not None
+            else self.urgent.sleep_until_energy
+        )
+
+        self._last_decide: float | None = None
         self._current_behavior: Behavior | None = None
         self._commitment_until: float = 0.0
-        self._last_started: dict[Behavior, float] = {}
 
     def decide(
         self,
@@ -100,10 +138,11 @@ class BehaviorEngine:
                 "loud external wake signal received",
                 now,
                 force=True,
+                source="play_dead",
             )
 
         # Nobody yelled: buddy gets bored of playing dead and gets up.
-        started = self._last_started.get(Behavior.PLAY_DEAD)
+        started = self.memory.last_started(Behavior.PLAY_DEAD)
         if (
             pet.play_dead_active
             and started is not None
@@ -116,6 +155,7 @@ class BehaviorEngine:
                 "nobody came; got up from playing dead",
                 now,
                 force=True,
+                source="play_dead",
             )
 
         if pet.play_dead_active:
@@ -124,6 +164,7 @@ class BehaviorEngine:
                 Behavior.PLAY_DEAD,
                 "waiting for external loud-voice signal",
                 now,
+                source="play_dead",
             )
 
         # Once asleep, stay asleep until properly rested. Without this, buddy
@@ -137,6 +178,7 @@ class BehaviorEngine:
                 Behavior.SLEEP,
                 "sleeping until rested",
                 now,
+                source="sleep",
             )
 
         urgent = self._urgent_behavior(pet)
@@ -160,6 +202,7 @@ class BehaviorEngine:
                     reason,
                     now,
                     force=True,
+                    source="urgent",
                 )
 
         if (
@@ -171,27 +214,20 @@ class BehaviorEngine:
                 self._current_behavior,
                 "continuing committed autonomous behavior",
                 now,
+                source="commitment",
             )
 
-        candidate, reason = self._choose_candidate(
-            pet,
-            screen,
-            now,
-        )
+        return self._choose(pet, screen, now)
 
-        return self._start(
-            pet,
-            candidate,
-            reason,
-            now,
-        )
+    # --- urgent needs ------------------------------------------------------
 
     def _urgent_behavior(self, pet: PetState) -> Behavior | None:
-        if pet.energy <= 18:
+        u = self.urgent
+        if pet.energy <= u.sleep_at_energy:
             return Behavior.SLEEP
-        if pet.attention <= 18:
+        if pet.attention <= u.attention_critical:
             return Behavior.ASK_FOR_ATTENTION
-        if pet.hunger >= 80:
+        if pet.hunger >= u.hunger_critical:
             return Behavior.ASK_FOR_ATTENTION
         return None
 
@@ -201,70 +237,79 @@ class BehaviorEngine:
             return "energy is critically low"
         return "a Tamagotchi need is critically low"
 
-    def _choose_candidate(
+    # --- utility selection --------------------------------------------------
+
+    def _choose(
         self,
         pet: PetState,
         screen: ScreenContext,
         now: float,
-    ) -> tuple[Behavior, str]:
-        """
-        Utility scoring: every eligible behavior gets a score from needs,
-        mood, user context, distraction budget, and memory. The best wins.
-
-        Behaviors within `near_best_margin` of the top score count as
-        equally good, and one is picked at random, so buddy isn't robotic.
-        """
-        scored = self.score_all(pet, screen, now)
-        eligible = [s for s in scored if self._available(s.behavior, pet, now)]
-
+    ) -> BehaviorDecision:
+        eligible = [b for b in self.specs if self._available(b, pet, now)]
         if not eligible:
-            return Behavior.IDLE, "no other autonomous behavior is available"
+            return self._start(
+                pet,
+                Behavior.IDLE,
+                "no other autonomous behavior is available",
+                now,
+                force=True,
+                source="fallback",
+            )
 
-        best = eligible[0].score
-        near_best = [
-            s for s in eligible
-            if s.score >= best - self.near_best_margin
-        ]
-        chosen_behavior = self.rng.choice([s.behavior for s in near_best])
-        chosen = next(s for s in near_best if s.behavior == chosen_behavior)
+        scored = self._score(pet, screen, now, eligible)
+        chosen, strong = self.scorer.select(scored, self.rng)
 
-        return chosen.behavior, chosen.reason
+        return self._start(
+            pet,
+            chosen.behavior,
+            chosen.reason,
+            now,
+            source="utility",
+            scores={s.behavior: round(s.score, 1) for s in scored},
+            breakdown=chosen.breakdown.rounded(),
+            candidates=[s.behavior for s in strong],
+        )
+
+    def _score(
+        self,
+        pet: PetState,
+        screen: ScreenContext,
+        now: float,
+        behaviors,
+    ) -> list[BehaviorScore]:
+        context = build_context(
+            pet,
+            screen,
+            budget_fraction=self.budget.value / self.budget.config.max_budget,
+            now=now,
+        )
+        return self.scorer.score_all(
+            behaviors, self.specs, context, self.memory, self.rng,
+        )
 
     def score_all(
         self,
         pet: PetState,
         screen: ScreenContext,
         now: float | None = None,
-    ) -> list[ScoredBehavior]:
-        """All behaviors, highest utility first (ignores eligibility)."""
+    ) -> list[BehaviorScore]:
+        """Every behavior's utility, highest first (ignores eligibility)."""
         now = self.clock() if now is None else now
-        context = build_context(
-            pet,
-            screen,
-            budget_fraction=(
-                self.budget.value / self.budget.config.max_budget
-            ),
-            recently_ignored=self.memory.recently_ignored(now),
-            whim=self.rng.random(),
-        )
-        scored = [
-            score_behavior(
-                behavior,
-                context,
-                distracting=self.specs[behavior].distracting,
-                repetitive=self.memory.is_repetitive(behavior),
-            )
-            for behavior in self.specs
-        ]
-        scored.sort(key=lambda s: s.score, reverse=True)
-        return scored
+        return self._score(pet, screen, now, list(self.specs))
+
+    # --- memory access --------------------------------------------------------
 
     def record_interaction(self) -> None:
         """The user interacted with buddy (petting, feeding, etc.)."""
         self.memory.record_interaction(self.clock())
 
     def memory_snapshot(self) -> MemorySnapshot:
-        return self.memory.snapshot(self.clock())
+        return self.memory.snapshot(
+            self.clock(),
+            self.config.recent_distracting_window_seconds,
+        )
+
+    # --- hard eligibility -------------------------------------------------
 
     def _available(
         self,
@@ -277,15 +322,23 @@ class BehaviorEngine:
         if pet.energy < spec.min_energy:
             return False
 
+        # Impossible state: not tired enough to fall asleep.
+        if (
+            behavior == Behavior.SLEEP
+            and pet.energy >= self.urgent.nap_below_energy
+        ):
+            return False
+
         if not self.budget.can_afford(behavior):
             return False
 
-        last_started = self._last_started.get(behavior)
-
+        last_started = self.memory.last_started(behavior)
         if last_started is None:
             return True
 
         return now >= last_started + spec.cooldown_seconds
+
+    # --- starting / holding -----------------------------------------------
 
     def _start(
         self,
@@ -294,6 +347,10 @@ class BehaviorEngine:
         reason: str,
         now: float,
         force: bool = False,
+        source: str = "utility",
+        scores: dict[Behavior, float] | None = None,
+        breakdown: dict[str, float] | None = None,
+        candidates: list[Behavior] | None = None,
     ) -> BehaviorDecision:
         spec = self.specs[behavior]
 
@@ -301,15 +358,16 @@ class BehaviorEngine:
             behavior = Behavior.IDLE
             spec = self.specs[behavior]
             reason = "requested behavior was unavailable; falling back to idle"
+            source = "fallback"
 
         if self._current_behavior != behavior:
+            # Costs are charged only when a behavior actually starts.
             pet.energy = max(0.0, pet.energy - spec.energy_cost)
             pet.current_behavior = behavior
             self._current_behavior = behavior
             self._commitment_until = now + spec.commitment_seconds
-            self._last_started[behavior] = now
             self.budget.spend(behavior)
-            self.memory.record_behavior(behavior, now)
+            self.memory.record_behavior(behavior, now, spec.distracting)
 
             if behavior == Behavior.PLAY_DEAD:
                 pet.play_dead_active = True
@@ -319,6 +377,10 @@ class BehaviorEngine:
             behavior,
             reason,
             now,
+            source=source,
+            scores=scores,
+            breakdown=breakdown,
+            candidates=candidates,
         )
 
     def _hold_existing(
@@ -327,15 +389,11 @@ class BehaviorEngine:
         behavior: Behavior,
         reason: str,
         now: float,
+        source: str = "commitment",
     ) -> BehaviorDecision:
         pet.current_behavior = behavior
         self._current_behavior = behavior
-        return self._decision(
-            pet,
-            behavior,
-            reason,
-            now,
-        )
+        return self._decision(pet, behavior, reason, now, source=source)
 
     def _decision(
         self,
@@ -343,10 +401,16 @@ class BehaviorEngine:
         behavior: Behavior,
         reason: str,
         now: float,
+        source: str = "utility",
+        scores: dict[Behavior, float] | None = None,
+        breakdown: dict[str, float] | None = None,
+        candidates: list[Behavior] | None = None,
     ) -> BehaviorDecision:
         spec = self.specs[behavior]
 
-        last_started = self._last_started.get(behavior, now)
+        last_started = self.memory.last_started(behavior)
+        if last_started is None:
+            last_started = now
         cooldown_remaining = max(
             0.0,
             last_started + spec.cooldown_seconds - now,
@@ -366,4 +430,8 @@ class BehaviorEngine:
             commitment_remaining_seconds=commitment_remaining,
             cooldown_remaining_seconds=cooldown_remaining,
             distraction_budget=self.budget.value,
+            source=source,
+            behavior_scores=scores or {},
+            score_breakdown=breakdown or {},
+            candidates=candidates or [],
         )
