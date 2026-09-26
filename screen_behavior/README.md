@@ -88,25 +88,60 @@ macOS:
 python3 -m screen_behavior.demo_v04
 ```
 
-### Pixel buddy UI
+### Running the whole app (UI + brain + extension)
 
-Start the live demo with its local animation UI. The brain's behavior and mood
-drive the pixel character automatically:
+One server runs everything: the Buddy UI, chat, the extension download, and
+this companion brain.
 
-```powershell
-py -m screen_behavior.demo_v05 --ui
+```bash
+python3 UI/server.py          # then open http://127.0.0.1:8765
+python3 UI/server.py --mic    # also let a loud yell wake buddy from play-dead
+python3 UI/server.py --no-brain
 ```
 
-Other Python scripts can control the same UI directly:
+How the pieces connect:
+
+```text
+ OS sensors ─┐                                   ┌─> UI/app.js       (character pose, caption,
+ (screen,    │                                   │                    mood/needs panel, Feed fish)
+ keyboard,   ├─> CompanionBrain ─> presenter ─> GET /api/state ─┼─> UI/animation.js (7 detailed animations)
+ mouse, mic) │        ^                          │
+             │        │                          └─> extension background.js ─> buddy.js on every site
+ extension ──┘        │                                              (sleep / wander / follow / cheer)
+ heartbeats           │
+ (host, title, ───────┘  POST /api/browser-activity
+ clicks, keys,           POST /api/interact {"type": "pet"}   <- headpats (app page or any website)
+ copies, pastes,         POST /api/feed                        <- Feed fish button
+ scroll)                 POST /api/chat                        <- chat also counts as attention
+```
+
+- `screen_behavior/integration/presenter.py` is the only contract between the
+  brain and the animations. It maps each update to one of the 7
+  `UI/animation.js` states, a `pose` for `sprites.js`, and an `onpage_mode`
+  for the on-page buddy. Change the mapping there, not in the front ends.
+- The extension sends a heartbeat every 5s while a page is in view (counts
+  since the last heartbeat, host, title, scroll %). When the browser is in
+  front, its page title and host sharpen activity detection (e.g. YouTube →
+  video, Google Docs → studying). When OS keyboard monitoring is unavailable
+  (macOS permission not granted), in-browser key/copy/paste counts stand in.
+- Without the app running, the extension's buddy falls back to its own
+  wander/sleep behavior; without the brain (`--no-brain`), the UI still
+  works and `/api/state` reports `"brain": "offline"`.
+
+### Driving the UI from your own script
+
+`animation_bridge.py` serves the same app, but your script decides the state:
 
 ```python
 from animation_bridge import AnimationBridge
 
 bridge = AnimationBridge()
 bridge.start()
-bridge.set_animation("encouragement", "You got this!")
+bridge.set_animation("encouragement", "You got this!")   # manual
+bridge.update_from_brain(brain.update())                  # or from a brain
 ```
 
+`py -m screen_behavior.demo_v05 --ui` does this with the live brain.
 Supported animation names are `lounging`, `happy`, `sad`, `tired`, `angry`,
 `hungry`, and `encouragement`. Call `bridge.close()` when the script exits.
 

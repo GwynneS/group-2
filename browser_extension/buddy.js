@@ -4,6 +4,11 @@
 // Right-click it to chat; the conversation is shared with the Buddy app
 // (UI/server.py) and every other tab.
 //
+// When the Buddy app is running, its companion brain decides what the buddy
+// does (sleep, wander, follow the cursor, cheer, ask for attention) through
+// the `onpage_mode` in GET /api/state. Without the app, the buddy falls back
+// to wandering and dozing off on its own.
+//
 // Preference lives in storage.local under `buddy`:
 //   { character: "girl" | "boy" | null, visible: boolean }
 // Changing it anywhere (popup, right-click menu, first-run picker) updates
@@ -24,6 +29,8 @@
   const TOP_ROOM = 60; // keep space above for the speech bubble
   const SLEEP_AFTER_MS = 90_000;
   const WELCOME_AFTER_MS = 60_000;
+  const BRAIN_POLL_MS = 3000;
+  const BRAIN_STALE_MS = 10_000;
   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const LINES = {
@@ -35,6 +42,7 @@
       welcome: ["Welcome back! I missed you~", "Yay, you're back!"],
       wake: ["Mm? Oh! I'm awake, I'm awake!", "*yawn* ...morning~"],
       idle: ["You're doing great!", "Remember to drink water~", "Focus mode: activated!", "Nya~"],
+      attention: ["Psst... pay attention to me~", "Headpat? Pretty please?", "Hey hey, look at me!"],
     },
     boy: {
       greet: ["Hey! I'm Kiko. Let's get stuff done.", "Kiko reporting for duty!"],
@@ -44,6 +52,7 @@
       welcome: ["Welcome back! Ready to go?", "There you are!"],
       wake: ["Huh? I wasn't sleeping.", "*stretch* ...okay, I'm up."],
       idle: ["You've got this.", "Stretch break soon?", "Solid work so far.", "Mrrp."],
+      attention: ["...Hey. Got a sec?", "I could use a headpat. Just saying.", "Mrrp? Over here."],
     },
   };
 
@@ -205,6 +214,9 @@
     lastInput: Date.now(),
     hiddenAt: 0,
     mouse: null,
+    brain: null, // latest brain state from the Buddy app, or null
+    brainAt: 0,
+    brainMode: null,
   };
   let bubbleTimer = 0;
   let running = false;
@@ -253,10 +265,68 @@
     return false;
   }
 
+  // --- Companion brain -----------------------------------------------------
+
+  function brainFresh() {
+    return st.brain && Date.now() - st.brainAt < BRAIN_STALE_MS;
+  }
+
+  // Act on the brain's decision when it changes; in between, the buddy's own
+  // movement code animates it.
+  function applyBrain(data) {
+    st.brain = data;
+    st.brainAt = data ? Date.now() : 0;
+    const mode = data?.onpage_mode ?? null;
+    if (!mode || mode === st.brainMode) return;
+    st.brainMode = mode;
+    if (st.mode === "chat" || drag || !prefs.character) return;
+
+    const now = performance.now();
+    switch (mode) {
+      case "sleep":
+        setMode("sleep");
+        say("Zzz...", 0);
+        break;
+      case "wander":
+        st.tx = rand(EDGE, innerWidth - BW - EDGE);
+        st.ty = rand(TOP_ROOM, innerHeight - BH - EDGE);
+        setMode("wander", 15000);
+        break;
+      case "follow":
+        if (st.mouse) setMode("follow", rand(4000, 6000));
+        break;
+      case "cheer":
+        st.happyUntil = now + 2500;
+        setMode("idle", 3000);
+        if (data.message) say(data.message, 2500);
+        break;
+      case "attention":
+        if (st.mouse) setMode("follow", 6000);
+        say(pick(lines().attention), 3500);
+        break;
+      default:
+        if (st.mode === "sleep") {
+          setMode("idle", 1500);
+          say(pick(lines().wake), 2500);
+        }
+    }
+  }
+
+  function pollBrain() {
+    if (!running) return;
+    try {
+      api.runtime.sendMessage({ type: "brainState" }).then(applyBrain, () => applyBrain(null));
+    } catch {
+      applyBrain(null); // extension reloaded; this page's script is orphaned
+    }
+  }
+  setInterval(pollBrain, BRAIN_POLL_MS);
+
   function update(now, dt) {
     if (drag) return false;
 
-    if (st.mode !== "sleep" && st.mode !== "chat" && Date.now() - st.lastInput > SLEEP_AFTER_MS) {
+    // Without the brain, doze off after a while of no input.
+    if (!brainFresh() && st.mode !== "sleep" && st.mode !== "chat" && Date.now() - st.lastInput > SLEEP_AFTER_MS) {
       setMode("sleep");
       say("Zzz...", 0);
     }
@@ -300,7 +370,7 @@
   function render(now, moving) {
     if (!prefs.character) return;
     const sleeping = st.mode === "sleep";
-    const happy = now < st.happyUntil;
+    const happy = now < st.happyUntil || (brainFresh() && st.brain.pose?.eyes === "happy");
 
     if (now > st.nextBlink) {
       st.blinkUntil = now + 150;
@@ -331,6 +401,7 @@
     running = true;
     last = 0;
     requestAnimationFrame(frame);
+    pollBrain();
   }
 
   function stop() {

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from screen_behavior.awareness.browser import BrowserActivity
 from screen_behavior.awareness.mouse import MouseActivity
 
 
@@ -160,6 +161,7 @@ class ScreenContext:
     window_edge: WindowEdgeAwareness | None = None
     keyboard: KeyboardActivity | None = None
     mouse: MouseActivity | None = None
+    browser: BrowserActivity | None = None
 
     # Fused state from activity + keyboard + mouse + idle (+ presence).
     # None when built by hand (tests/demos); properties fall back to activity.
