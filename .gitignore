@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# MediaPipe models (tracking.py downloads them automatically)
+*.task
+
+# macOS
+.DS_Store
+__pycache__/
+*.py[cod]

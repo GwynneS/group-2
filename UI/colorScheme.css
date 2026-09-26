@@ -1,0 +1,511 @@
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap');
+
+:root {
+    color-scheme: light;
+    --ink: #2b1940;
+    --muted: #715d88;
+    --surface: #fff8df;
+    --surface-soft: #eee0ff;
+    --line: #392452;
+    --plum: #43245e;
+    --violet: #7046a0;
+    --lilac: #d8b8f2;
+    --lime: #c6ed78;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    min-width: 320px;
+    min-height: 100vh;
+    margin: 0;
+    padding: 28px;
+    display: grid;
+    place-items: center;
+    color: var(--ink);
+    background-color: #b99bd5;
+    background-image:
+        linear-gradient(rgba(67, 36, 94, 0.09) 2px, transparent 2px),
+        linear-gradient(90deg, rgba(67, 36, 94, 0.09) 2px, transparent 2px);
+    background-size: 24px 24px;
+    font-family: "VT323", "Courier New", monospace;
+}
+
+.window-container {
+    width: min(1180px, 100%);
+    height: min(790px, calc(100vh - 56px));
+    min-height: 580px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border: 4px solid var(--line);
+    border-radius: 0;
+    box-shadow: 8px 8px 0 rgba(43, 25, 64, 0.3);
+}
+
+.window-content {
+    flex: 1;
+    min-height: 0;
+    padding: 22px;
+    display: grid;
+    grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+    gap: 20px;
+}
+
+.left-column {
+    min-height: 0;
+    display: grid;
+    grid-template-rows: 1fr 1fr;
+    gap: 20px;
+}
+
+.panel-box {
+    min-width: 0;
+    min-height: 0;
+    padding: 17px;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border: 3px solid var(--line);
+    border-radius: 0;
+    box-shadow: 4px 4px 0 rgba(57, 36, 82, 0.18);
+}
+
+.panel-box h2 {
+    margin: 0 0 14px;
+    font-family: "Press Start 2P", "Courier New", monospace;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.8;
+    text-transform: uppercase;
+}
+
+.media-placeholder {
+    position: relative;
+    flex: 1;
+    min-height: 150px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background-color: #352544;
+    background-image:
+        linear-gradient(45deg, #402d53 25%, transparent 25%, transparent 75%, #402d53 75%),
+        linear-gradient(45deg, #402d53 25%, transparent 25%, transparent 75%, #402d53 75%);
+    background-position: 0 0, 8px 8px;
+    background-size: 16px 16px;
+    border: 3px solid #21162e;
+    color: #e9ddf3;
+    image-rendering: pixelated;
+}
+
+.media-placeholder p {
+    margin: 0;
+    color: #e1d2ed;
+    font-size: 20px;
+}
+
+.media-icon {
+    padding: 5px 8px;
+    border: 2px solid #e9ddf3;
+    box-shadow: 3px 3px 0 #21162e;
+    color: var(--lime);
+    font-family: "Press Start 2P", "Courier New", monospace;
+    font-size: 8px;
+    font-weight: 700;
+}
+
+.pixel-character-wrap {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    place-items: center;
+}
+
+#buddy-sprite {
+    display: block;
+    width: min(256px, 82%);
+    max-height: 100%;
+    image-rendering: pixelated;
+    filter: drop-shadow(6px 6px 0 #21162e);
+}
+
+#animation-caption {
+    max-width: 100%;
+    min-height: 18px;
+    text-align: center;
+    font-family: "Press Start 2P", "Courier New", monospace;
+    font-size: 8px;
+    line-height: 1.8;
+    overflow-wrap: anywhere;
+}
+
+#interaction-box {
+    padding-bottom: 16px;
+}
+
+#chat-history {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 14px;
+    background: var(--surface-soft);
+    border: 3px solid var(--line);
+}
+
+.message {
+    max-width: 88%;
+    margin: 0;
+    padding: 11px 13px;
+    border: 2px solid var(--line);
+    border-radius: 0;
+    background: white;
+    box-shadow: 4px 4px 0 rgba(57, 36, 82, 0.18);
+    font-size: 20px;
+    line-height: 1.5;
+}
+
+.message p {
+    margin: 0;
+}
+
+.message strong {
+    color: var(--violet);
+    font-family: "Press Start 2P", "Courier New", monospace;
+    font-size: 9px;
+}
+
+#chat-form {
+    margin-top: 14px;
+    display: flex;
+    gap: 9px;
+}
+
+#user-input {
+    min-width: 0;
+    flex: 1;
+    padding: 8px 10px;
+    border: 2px solid var(--line);
+    border-radius: 0;
+    background: white;
+    color: var(--ink);
+    font: inherit;
+    font-size: 20px;
+}
+
+#user-input::placeholder {
+    color: var(--muted);
+}
+
+#user-input:focus-visible,
+#chat-form button:focus-visible {
+    outline: 3px dashed var(--violet);
+    outline-offset: 2px;
+}
+
+#chat-form button {
+    padding: 0 16px;
+    border: 2px solid var(--line);
+    border-radius: 0;
+    background: var(--violet);
+    color: white;
+    font: inherit;
+    font-family: "Press Start 2P", "Courier New", monospace;
+    font-size: 9px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 3px 3px 0 var(--line);
+}
+
+#chat-form button:hover {
+    background: var(--plum);
+    transform: translate(1px, 1px);
+    box-shadow: 2px 2px 0 var(--line);
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    clip-path: inset(50%);
+}
+
+@media (max-width: 760px) {
+    body {
+        padding: 14px;
+        place-items: start center;
+    }
+
+    .window-container {
+        height: auto;
+        min-height: calc(100vh - 28px);
+    }
+
+    .window-content {
+        grid-template-columns: 1fr;
+        padding: 14px;
+        gap: 14px;
+    }
+
+    .left-column {
+        grid-template-rows: repeat(2, minmax(210px, 1fr));
+        gap: 14px;
+    }
+
+    #interaction-box {
+        min-height: 340px;
+    }
+
+    #buddy-sprite {
+        width: min(224px, 68vw);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+    }
+}
+/* --- App shell: title bar, buddy panel, chat, install dialog --- */
+
+.title-bar {
+    flex: none;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 16px;
+    padding: 10px 22px;
+    background: var(--plum);
+    color: var(--surface);
+    border-bottom: 4px solid var(--line);
+}
+
+.title-bar h1 {
+    margin: 0;
+    font-family: "Press Start 2P", "Courier New", monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.status-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.chip {
+    padding: 3px 8px;
+    border: 2px solid var(--surface);
+    font-size: 18px;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.chip[data-state="good"] { background: var(--lime); color: var(--ink); border-color: var(--lime); }
+.chip[data-state="warn"] { background: #ffe08a; color: var(--ink); border-color: #ffe08a; }
+.chip[data-state="unknown"] { color: var(--lilac); border-color: var(--lilac); }
+
+.pixel-button {
+    display: inline-block;
+    padding: 6px 12px;
+    border: 2px solid var(--line);
+    background: var(--violet);
+    color: white;
+    font-family: "Press Start 2P", "Courier New", monospace;
+    font-size: 9px;
+    line-height: 1.6;
+    text-decoration: none;
+    cursor: pointer;
+    box-shadow: 3px 3px 0 var(--line);
+}
+
+.title-bar .pixel-button {
+    background: var(--lime);
+    color: var(--ink);
+}
+
+.pixel-button:hover {
+    transform: translate(1px, 1px);
+    box-shadow: 2px 2px 0 var(--line);
+}
+
+.pixel-button:focus-visible,
+.buddy-choice:focus-visible,
+.toggle input:focus-visible,
+#buddy-canvas:focus-visible {
+    outline: 3px dashed var(--lime);
+    outline-offset: 2px;
+}
+
+.buddy-panel {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    gap: 14px;
+}
+
+.buddy-stage {
+    min-width: 0;
+    gap: 6px;
+}
+
+#buddy-canvas {
+    image-rendering: pixelated;
+    cursor: pointer;
+}
+
+.buddy-settings {
+    flex: none;
+    width: 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.choice-row {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+}
+
+.buddy-choice {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 4px;
+    background: var(--surface-soft);
+    border: 2px solid var(--line);
+    color: var(--ink);
+    font: inherit;
+    font-size: 18px;
+    cursor: pointer;
+    box-shadow: 3px 3px 0 rgba(57, 36, 82, 0.18);
+}
+
+.buddy-choice:hover { background: var(--lilac); }
+.buddy-choice[aria-pressed="true"] { background: var(--lime); }
+
+.buddy-choice canvas {
+    width: 64px;
+    height: 88px;
+    image-rendering: pixelated;
+}
+
+.toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 20px;
+    cursor: pointer;
+}
+
+.toggle input {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--violet);
+}
+
+.small-note {
+    margin: 0;
+    color: var(--muted);
+    font-size: 18px;
+    line-height: 1.3;
+}
+
+#chat-history {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.message.user-message {
+    align-self: flex-end;
+    background: var(--surface);
+}
+
+.message.user-message strong {
+    color: var(--plum);
+}
+
+.message.error-message {
+    border-style: dashed;
+}
+
+.message.typing p {
+    color: var(--muted);
+}
+
+#interaction-box .small-note {
+    margin-top: 10px;
+}
+
+#install-dialog {
+    max-width: min(560px, calc(100vw - 32px));
+    padding: 20px 22px;
+    background: var(--surface);
+    color: var(--ink);
+    border: 4px solid var(--line);
+    box-shadow: 8px 8px 0 rgba(43, 25, 64, 0.3);
+    font-size: 20px;
+    line-height: 1.4;
+}
+
+#install-dialog::backdrop {
+    background: rgba(43, 25, 64, 0.45);
+}
+
+#install-dialog h2 {
+    margin: 0 0 12px;
+    font-family: "Press Start 2P", "Courier New", monospace;
+    font-size: 11px;
+    line-height: 1.8;
+}
+
+#install-dialog ol {
+    margin: 0 0 16px;
+    padding-left: 24px;
+    display: grid;
+    gap: 8px;
+}
+
+#install-dialog code {
+    padding: 0 4px;
+    background: var(--surface-soft);
+    font-family: inherit;
+}
+
+@media (max-width: 760px) {
+    .title-bar {
+        padding: 10px 14px;
+    }
+
+    .buddy-panel {
+        flex-direction: column;
+    }
+
+    .buddy-settings {
+        width: 100%;
+    }
+
+    .left-column {
+        grid-template-rows: minmax(210px, auto) auto;
+    }
+}

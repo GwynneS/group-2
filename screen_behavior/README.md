@@ -88,6 +88,28 @@ macOS:
 python3 -m screen_behavior.demo_v04
 ```
 
+### Pixel buddy UI
+
+Start the live demo with its local animation UI. The brain's behavior and mood
+drive the pixel character automatically:
+
+```powershell
+py -m screen_behavior.demo_v05 --ui
+```
+
+Other Python scripts can control the same UI directly:
+
+```python
+from animation_bridge import AnimationBridge
+
+bridge = AnimationBridge()
+bridge.start()
+bridge.set_animation("encouragement", "You got this!")
+```
+
+Supported animation names are `lounging`, `happy`, `sad`, `tired`, `angry`,
+`hungry`, and `encouragement`. Call `bridge.close()` when the script exits.
+
 ### Instant deterministic scenarios
 
 Windows:

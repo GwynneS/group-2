@@ -44,8 +44,9 @@ def _top_scores(scores, count=3):
     )
 
 
-def live_demo() -> None:
+def live_demo(enable_ui: bool = False) -> None:
     brain = CompanionBrain()
+    animation_bridge = None
 
     print(f"Platform: {platform.system()}")
     print("V0.5 live Screen Awareness + Tamagotchi Behavior demo")
@@ -54,8 +55,16 @@ def live_demo() -> None:
     print("Switch between apps. Ctrl+C to stop.\n")
 
     try:
+        if enable_ui:
+            from animation_bridge import AnimationBridge
+
+            animation_bridge = AnimationBridge()
+            print(f"Buddy UI: {animation_bridge.start()}\n")
+
         while True:
             update = brain.update()
+            if animation_bridge is not None:
+                animation_bridge.update_from_brain(update)
             screen = update.screen
             pet = update.pet
             decision = update.decision
@@ -105,6 +114,8 @@ def live_demo() -> None:
         print("\nStopped.")
     finally:
         brain.close()
+        if animation_bridge is not None:
+            animation_bridge.close()
 
 
 def scenario_demo() -> None:
@@ -205,12 +216,17 @@ def main() -> None:
         action="store_true",
         help="Run instant deterministic scenarios.",
     )
+    parser.add_argument(
+        "--ui",
+        action="store_true",
+        help="Open the pixel buddy UI and stream behavior animations.",
+    )
     args = parser.parse_args()
 
     if args.scenarios:
         scenario_demo()
     else:
-        live_demo()
+        live_demo(enable_ui=args.ui)
 
 
 if __name__ == "__main__":
