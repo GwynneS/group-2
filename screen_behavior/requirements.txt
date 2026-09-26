@@ -1,3 +1,0 @@
-psutil>=6.0,<8
-pynput>=1.7.7,<2
-sounddevice>=0.4.6,<1
