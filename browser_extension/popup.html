@@ -5,6 +5,7 @@
   <title>Buddy</title>
   <style>
     * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
     body {
       width: 280px; margin: 0; padding: 14px;
       background: #fff8df; color: #2b1940;
@@ -38,10 +39,24 @@
     }
     .app-link:hover { background: #43245e; }
     .app-link:focus-visible { outline: 3px dashed #7046a0; outline-offset: 2px; }
+    #access {
+      margin: 0 0 12px; padding: 8px; font-size: 8px; line-height: 1.8;
+      background: #ffe3a8; border: 2px solid #392452;
+    }
+    #access button {
+      display: block; width: 100%; margin-top: 6px; padding: 6px; cursor: pointer;
+      font: inherit; color: #ffffff; background: #7046a0; border: 2px solid #392452;
+    }
+    #access button:hover { background: #43245e; }
+    #access button:focus-visible { outline: 3px dashed #7046a0; outline-offset: 2px; }
   </style>
 </head>
 <body>
   <h1>Your buddy</h1>
+  <div id="access" hidden>
+    <span id="access-text">Your buddy can't visit other websites yet.</span>
+    <button type="button" id="grant">Allow on all websites</button>
+  </div>
   <div class="choices">
     <button class="choice" data-char="girl" aria-pressed="false">
       <span class="portrait"><span class="buddy-pose"><img class="buddy-figure emo-happy" alt=""></span></span><span class="name"></span><small></small>

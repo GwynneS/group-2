@@ -11,3 +11,6 @@ venv/
 .DS_Store
 __pycache__/
 *.py[cod]
+
+# Packaged browser extension (python3 build_extension.py)
+dist/

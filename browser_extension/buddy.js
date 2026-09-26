@@ -44,13 +44,10 @@
   const TOP_ROOM = 60; // keep space above for the speech bubble
   const SLEEP_AFTER_MS = 90_000;
   const WELCOME_AFTER_MS = 60_000;
-<<<<<<< HEAD
   const HUNGRY_AFTER_MS = 45 * 60_000;
   const APP_POLL_MS = 4000;
-=======
   const BRAIN_POLL_MS = 3000;
   const BRAIN_STALE_MS = 10_000;
->>>>>>> 4c4be53baaa5a9f9b14e529463ac5dc625fcd7ff
   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const LINES = {
@@ -99,8 +96,10 @@
   host.style.cssText =
     "position:fixed;left:0;top:0;width:0;height:0;z-index:2147483647;pointer-events:none;";
   const root = host.attachShadow({ mode: "closed" });
-  root.innerHTML = `
-    <style>
+  // Styles go in through textContent and the markup stays a plain string, so
+  // nothing dynamic is ever parsed as HTML (Firefox add-on review checks this).
+  const style = document.createElement("style");
+  style.textContent = `
       :host { all: initial; }
       [hidden] { display: none !important; }
       * { box-sizing: border-box; font-family: "Press Start 2P", "VT323", ui-monospace, "Courier New", monospace; }
@@ -189,7 +188,8 @@
         border: 2px solid #392452; font-size: 8px; line-height: 1.6;
       }
       .chat input:focus-visible, .chat form button:focus-visible { outline: 2px dashed #7046a0; outline-offset: 1px; }
-    </style>
+  `;
+  root.innerHTML = `
     <div class="wrap" hidden>
       <div class="flip"><div class="buddy-pose"><img class="buddy-figure" alt="Buddy" draggable="false"></div></div>
       <div class="bubble" hidden></div>
@@ -198,8 +198,8 @@
     <div class="picker" hidden>
       <h2>Pick your buddy!</h2>
       <div class="choices">
-        <button data-char="girl"><img alt="">${B.CHARACTERS.girl.name} · ${B.CHARACTERS.girl.label}</button>
-        <button data-char="boy"><img alt="">${B.CHARACTERS.boy.name} · ${B.CHARACTERS.boy.label}</button>
+        <button data-char="girl"><img alt=""></button>
+        <button data-char="boy"><img alt=""></button>
       </div>
       <p>You can switch any time: right-click your buddy or use the toolbar icon.</p>
     </div>
@@ -212,6 +212,7 @@
       </form>
     </section>
   `;
+  root.prepend(style);
 
   const wrap = root.querySelector(".wrap");
   const flip = wrap.querySelector(".flip");
@@ -225,7 +226,9 @@
   const chatInput = chatPanel.querySelector("input");
 
   for (const btn of picker.querySelectorAll("button")) {
+    const ch = B.CHARACTERS[btn.dataset.char];
     btn.querySelector("img").src = artUrl(btn.dataset.char, "happy");
+    btn.append(`${ch.name} · ${ch.label}`);
     btn.addEventListener("click", () => savePrefs({ character: btn.dataset.char, visible: true }));
   }
 
@@ -379,7 +382,6 @@
     st.brainMode = mode;
     if (st.mode === "chat" || drag || !prefs.character) return;
 
-    const now = performance.now();
     switch (mode) {
       case "sleep":
         setMode("sleep");
@@ -394,9 +396,8 @@
         if (st.mouse) setMode("follow", rand(4000, 6000));
         break;
       case "cheer":
-        st.happyUntil = now + 2500;
         setMode("idle", 3000);
-        if (data.message) say(data.message, 2500);
+        react("happy", 2500, data.message);
         break;
       case "attention":
         if (st.mouse) setMode("follow", 6000);
@@ -471,14 +472,9 @@
 
   function render(now, moving) {
     if (!prefs.character) return;
-<<<<<<< HEAD
     const { emotion, active } = currentPose(now);
     showPose(emotion, active);
     flip.classList.toggle("left", st.facingLeft);
-=======
-    const sleeping = st.mode === "sleep";
-    const happy = now < st.happyUntil || (brainFresh() && st.brain.pose?.eyes === "happy");
->>>>>>> 4c4be53baaa5a9f9b14e529463ac5dc625fcd7ff
 
     // Float gently; hop while travelling; sink low while asleep.
     let bob = 0;
@@ -504,11 +500,8 @@
     running = true;
     last = 0;
     requestAnimationFrame(frame);
-<<<<<<< HEAD
     pollApp();
-=======
     pollBrain();
->>>>>>> 4c4be53baaa5a9f9b14e529463ac5dc625fcd7ff
   }
 
   function stop() {

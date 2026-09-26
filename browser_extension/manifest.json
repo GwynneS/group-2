@@ -1,9 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Buddy Activity Tracker",
-<<<<<<< HEAD
   "version": "0.5.0",
   "description": "A cat girl or cat boy buddy that hangs out in your browser, reacts to what you do, and cheers you on.",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
   "permissions": [
     "storage"
   ],
@@ -11,15 +16,13 @@
     "http://127.0.0.1/*",
     "http://localhost/*"
   ],
-=======
-  "version": "0.4.0",
-  "description": "A pixel cat girl or cat boy buddy that hangs out in your browser and cheers you on.",
-  "permissions": ["storage"],
-  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
->>>>>>> 4c4be53baaa5a9f9b14e529463ac5dc625fcd7ff
   "action": {
     "default_title": "Buddy",
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
   },
   "background": {
     "service_worker": "background.js",
@@ -61,10 +64,22 @@
       ]
     }
   ],
+  "minimum_chrome_version": "121",
   "browser_specific_settings": {
     "gecko": {
       "id": "buddy-activity-tracker@group-2",
-      "strict_min_version": "121.0"
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    },
+    "gecko_android": {
+      "strict_min_version": "142.0"
+    },
+    "safari": {
+      "strict_min_version": "16.4"
     }
   }
 }

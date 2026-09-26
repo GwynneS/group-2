@@ -34,6 +34,22 @@ for (const btn of buttons) {
 }
 visible.addEventListener("change", () => save({ ...prefs, visible: visible.checked }));
 
+// Firefox and Safari may install the extension without access to websites,
+// which keeps the buddy off every page and the Buddy app out of reach.
+// Chrome grants it on install, so this stays hidden there.
+const SITE_ACCESS = { origins: ["<all_urls>"] };
+const access = document.getElementById("access");
+const grant = document.getElementById("grant");
+api.permissions?.contains(SITE_ACCESS).then((granted) => (access.hidden = granted), () => {});
+grant.addEventListener("click", () => {
+  // Must run straight from the click, or the browser refuses to ask.
+  api.permissions.request(SITE_ACCESS).then((granted) => {
+    if (!granted) return;
+    document.getElementById("access-text").textContent = "Done! Reload your open tabs to see your buddy there.";
+    grant.hidden = true;
+  }, (err) => console.warn("Couldn't request site access", err));
+});
+
 function save(next) {
   prefs = next;
   api.storage.local.set({ buddy: next });

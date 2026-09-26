@@ -66,6 +66,44 @@ API (127.0.0.1 only): `GET /api/state`, `POST /api/presence`, `POST /api/interac
 The focused tab's title and host are sent only to this local server, only
 while it's running, so the brain can tell coding from videos.
 
+### The extension in every browser
+
+`browser_extension/` runs as-is in Chromium browsers (Chrome, Edge, Brave,
+Opera, Vivaldi, Arc), Firefox and Safari. Its manifest lists both background
+styles: Chromium runs `background.js` as a service worker, Firefox runs
+`background.scripts`.
+
+To try it, load the folder unpacked (**Download extension** in the app gives
+you the same folder):
+
+| Browser | Load it | Needs |
+|---|---|---|
+| Chrome, Edge, Brave, Opera, Vivaldi, Arc | `chrome://extensions` (`edge://extensions`, ...) → **Developer mode** → **Load unpacked** → pick the folder | Chrome 121+ |
+| Firefox | `about:debugging` → **This Firefox** → **Load Temporary Add-on** → pick `manifest.json` | Firefox 140+ (Android 142+) |
+| Safari | Run `python3 build_extension.py safari`, then Safari → Settings → Advanced → **Show features for web developers**, and Settings → Developer → **Add Temporary Extension…** → pick `dist/safari/extension` | Safari 18+ to load it this way; the built app runs on 16.4+ |
+
+If the buddy doesn't appear on websites (Firefox and Safari can install it
+without site access), click the toolbar icon, then **Allow on all websites**,
+and reload your tabs.
+
+To publish, build one package per store:
+
+```bash
+python3 build_extension.py
+```
+
+| Output | Upload to |
+|---|---|
+| `dist/buddy-chromium-<version>.zip` | Chrome Web Store, Microsoft Edge Add-ons, Opera add-ons. Brave, Vivaldi and Arc install from the Chrome Web Store. |
+| `dist/buddy-firefox-<version>.zip` | addons.mozilla.org (desktop and Android), which signs it |
+| `dist/safari/` | With Xcode installed, the script also runs `safari-web-extension-converter` to make an Xcode app project; ship that through the Mac or iOS App Store. Set `SAFARI_BUNDLE_ID` in `build_extension.py` first. |
+
+Each package keeps only the manifest keys its browser reads, and the script
+refuses to build if the manifest is broken or a file has merge-conflict
+markers. Raise `version` in `browser_extension/manifest.json` before each
+store upload. The icons in `browser_extension/icons/` come from
+`python3 art_source/slice_sheets.py --icons`.
+
 Tests:
 
 ```bash

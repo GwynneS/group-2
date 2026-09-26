@@ -7,14 +7,18 @@ label under each pose:
     tired   hungry  encouragement
 
 Output: browser_extension/art/<girl|boy>/<emotion>.png, scaled so both
-characters stand the same height (measured on the standing "angry" pose).
+characters stand the same height (measured on the standing "angry" pose),
+and browser_extension/icons/icon-<size>.png, the extension's store and
+toolbar icons.
 
     pip install pillow
-    python3 art_source/slice_sheets.py
+    python3 art_source/slice_sheets.py            # art + icons
+    python3 art_source/slice_sheets.py --icons    # icons only, from the existing art
 """
 
 from __future__ import annotations
 
+import sys
 from collections import deque
 from pathlib import Path
 
@@ -22,6 +26,9 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parent
 OUT = ROOT.parent / "browser_extension" / "art"
+ICONS = ROOT.parent / "browser_extension" / "icons"
+ICON_SIZES = (16, 32, 48, 128)
+ICON_POSE = ("girl", "happy")  # background.js swaps in the chosen buddy at runtime
 
 SHEETS = {"girl": ROOT / "cat_girl_sheet.png", "boy": ROOT / "cat_boy_sheet.png"}
 GRID = [["happy", "sad", "angry"], ["tired", "hungry", "encouragement"]]
@@ -146,7 +153,25 @@ def slice_sheet(path: Path) -> dict[str, Image.Image]:
     return poses
 
 
+def make_icons() -> None:
+    """Crop the default buddy to her head, the same crop background.js uses
+    for the live toolbar icon, so it stays readable at 16px."""
+    char, emotion = ICON_POSE
+    art = Image.open(OUT / char / f"{emotion}.png").convert("RGBA")
+    side = min(art.width, round(art.height * 0.62))
+    left = (art.width - side) // 2
+    head = art.crop((left, 0, left + side, side))
+    ICONS.mkdir(parents=True, exist_ok=True)
+    for size in ICON_SIZES:
+        dest = ICONS / f"icon-{size}.png"
+        head.resize((size, size), Image.LANCZOS).save(dest, optimize=True)
+        print(f"{dest.relative_to(ROOT.parent)}  {size}x{size}")
+
+
 def main() -> None:
+    if "--icons" in sys.argv:
+        make_icons()
+        return
     for char, path in SHEETS.items():
         poses = slice_sheet(path)
         scale = TARGET_HEIGHT / poses["angry"].height
@@ -159,6 +184,7 @@ def main() -> None:
             dest = OUT / char / f"{name}.png"
             framed.save(dest, optimize=True)
             print(f"{dest.relative_to(ROOT.parent)}  {framed.size[0]}x{framed.size[1]}")
+    make_icons()
 
 
 if __name__ == "__main__":
