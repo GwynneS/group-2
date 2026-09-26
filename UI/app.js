@@ -421,7 +421,8 @@
   }
 
   for (const btn of choices) {
-    btn.querySelector(".name").textContent = `${B.CHARACTERS[btn.dataset.char].name} · ${B.CHARACTERS[btn.dataset.char].label}`;
+    btn.querySelector(".name").textContent = B.CHARACTERS[btn.dataset.char].name;
+    btn.querySelector(".label").textContent = B.CHARACTERS[btn.dataset.char].label;
     btn.addEventListener("click", () => setPrefs({ ...prefs, character: btn.dataset.char, visible: true }));
     // Hovering a choice makes that buddy cheer.
     btn.addEventListener("mouseenter", () => setChoicePose(btn, "encouragement", true));

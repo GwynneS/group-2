@@ -1,5 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap');
 
+/* --- Tokens --- */
+
 :root {
     color-scheme: light;
     --ink: #2b1940;
@@ -11,10 +13,25 @@
     --violet: #7046a0;
     --lilac: #d8b8f2;
     --lime: #c6ed78;
+    --butter: #ffe08a;
+    --alert: #d64561;
+    --night: #352544;
+    --night-check: #402d53;
+    --night-line: #21162e;
+    --night-text: #e1d2ed;
+    --pixel-font: "Press Start 2P", "Courier New", monospace;
+    --shadow: 4px 4px 0 rgba(57, 36, 82, 0.18);
 }
+
+/* --- Base --- */
 
 * {
     box-sizing: border-box;
+}
+
+/* Several rules below set `display`; keep the hidden attribute winning. */
+[hidden] {
+    display: none !important;
 }
 
 body {
@@ -33,186 +50,6 @@ body {
     font-family: "VT323", "Courier New", monospace;
 }
 
-.window-container {
-    width: min(1180px, 100%);
-    height: min(790px, calc(100vh - 56px));
-    min-height: 580px;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    background: var(--surface);
-    border: 4px solid var(--line);
-    border-radius: 0;
-    box-shadow: 8px 8px 0 rgba(43, 25, 64, 0.3);
-}
-
-.window-content {
-    flex: 1;
-    min-height: 0;
-    padding: 22px;
-    display: grid;
-    grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
-    gap: 20px;
-}
-
-.left-column {
-    min-height: 0;
-    display: grid;
-    grid-template-rows: 1fr 1fr;
-    gap: 20px;
-}
-
-.panel-box {
-    min-width: 0;
-    min-height: 0;
-    padding: 17px;
-    display: flex;
-    flex-direction: column;
-    background: var(--surface);
-    border: 3px solid var(--line);
-    border-radius: 0;
-    box-shadow: 4px 4px 0 rgba(57, 36, 82, 0.18);
-}
-
-.panel-box h2 {
-    margin: 0 0 14px;
-    font-family: "Press Start 2P", "Courier New", monospace;
-    font-size: 10px;
-    font-weight: 700;
-    line-height: 1.8;
-    text-transform: uppercase;
-}
-
-.media-placeholder {
-    position: relative;
-    flex: 1;
-    min-height: 150px;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    background-color: #352544;
-    background-image:
-        linear-gradient(45deg, #402d53 25%, transparent 25%, transparent 75%, #402d53 75%),
-        linear-gradient(45deg, #402d53 25%, transparent 25%, transparent 75%, #402d53 75%);
-    background-position: 0 0, 8px 8px;
-    background-size: 16px 16px;
-    border: 3px solid #21162e;
-    color: #e9ddf3;
-    image-rendering: pixelated;
-}
-
-.media-placeholder p {
-    margin: 0;
-    color: #e1d2ed;
-    font-size: 20px;
-}
-
-.media-icon {
-    padding: 5px 8px;
-    border: 2px solid #e9ddf3;
-    box-shadow: 3px 3px 0 #21162e;
-    color: var(--lime);
-    font-family: "Press Start 2P", "Courier New", monospace;
-    font-size: 8px;
-    font-weight: 700;
-}
-
-#animation-caption {
-    max-width: 100%;
-    min-height: 18px;
-    text-align: center;
-    font-family: "Press Start 2P", "Courier New", monospace;
-    font-size: 8px;
-    line-height: 1.8;
-    overflow-wrap: anywhere;
-}
-
-#interaction-box {
-    padding-bottom: 16px;
-}
-
-#chat-history {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    padding: 14px;
-    background: var(--surface-soft);
-    border: 3px solid var(--line);
-}
-
-.message {
-    max-width: 88%;
-    margin: 0;
-    padding: 11px 13px;
-    border: 2px solid var(--line);
-    border-radius: 0;
-    background: white;
-    box-shadow: 4px 4px 0 rgba(57, 36, 82, 0.18);
-    font-size: 20px;
-    line-height: 1.5;
-}
-
-.message p {
-    margin: 0;
-}
-
-.message strong {
-    color: var(--violet);
-    font-family: "Press Start 2P", "Courier New", monospace;
-    font-size: 9px;
-}
-
-#chat-form {
-    margin-top: 14px;
-    display: flex;
-    gap: 9px;
-}
-
-#user-input {
-    min-width: 0;
-    flex: 1;
-    padding: 8px 10px;
-    border: 2px solid var(--line);
-    border-radius: 0;
-    background: white;
-    color: var(--ink);
-    font: inherit;
-    font-size: 20px;
-}
-
-#user-input::placeholder {
-    color: var(--muted);
-}
-
-#user-input:focus-visible,
-#chat-form button:focus-visible {
-    outline: 3px dashed var(--violet);
-    outline-offset: 2px;
-}
-
-#chat-form button {
-    padding: 0 16px;
-    border: 2px solid var(--line);
-    border-radius: 0;
-    background: var(--violet);
-    color: white;
-    font: inherit;
-    font-family: "Press Start 2P", "Courier New", monospace;
-    font-size: 9px;
-    font-weight: 700;
-    cursor: pointer;
-    box-shadow: 3px 3px 0 var(--line);
-}
-
-#chat-form button:hover {
-    background: var(--plum);
-    transform: translate(1px, 1px);
-    box-shadow: 2px 2px 0 var(--line);
-}
-
 .sr-only {
     position: absolute;
     width: 1px;
@@ -224,46 +61,78 @@ body {
     clip-path: inset(50%);
 }
 
-@media (max-width: 760px) {
-    body {
-        padding: 14px;
-        place-items: start center;
-    }
-
-    .window-container {
-        height: auto;
-        min-height: calc(100vh - 28px);
-    }
-
-    .window-content {
-        grid-template-columns: 1fr;
-        padding: 14px;
-        gap: 14px;
-    }
-
-    .left-column {
-        grid-template-rows: repeat(2, minmax(210px, 1fr));
-        gap: 14px;
-    }
-
-    #interaction-box {
-        min-height: 340px;
-    }
+.small-note {
+    margin: 0;
+    color: var(--muted);
+    font-size: 18px;
+    line-height: 1.3;
 }
 
-@media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
-        animation-duration: 0.01ms !important;
-        animation-iteration-count: 1 !important;
-        scroll-behavior: auto !important;
-    }
+/* --- Buttons and chips --- */
+
+.pixel-button {
+    display: inline-block;
+    padding: 6px 12px;
+    border: 2px solid var(--line);
+    background: var(--violet);
+    color: white;
+    font-family: var(--pixel-font);
+    font-size: 9px;
+    line-height: 1.6;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+    box-shadow: 3px 3px 0 var(--line);
 }
-/* --- App shell: title bar, buddy panel, chat, install dialog --- */
+
+.pixel-button:hover {
+    background: var(--plum);
+    transform: translate(1px, 1px);
+    box-shadow: 2px 2px 0 var(--line);
+}
+
+.pixel-button:disabled {
+    background: var(--surface-soft);
+    color: var(--muted);
+    cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
+}
+
+.pixel-button:focus-visible,
+.buddy-choice:focus-visible,
+.buddy-poke:focus-visible,
+.toggle input:focus-visible,
+#user-input:focus-visible {
+    outline: 3px dashed var(--violet);
+    outline-offset: 2px;
+}
+
+.chip {
+    padding: 3px 8px;
+    border: 2px solid var(--surface);
+    font-size: 18px;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.chip[data-state="good"] { background: var(--lime); color: var(--ink); border-color: var(--lime); }
+.chip[data-state="warn"] { background: var(--butter); color: var(--ink); border-color: var(--butter); }
+.chip[data-state="unknown"] { color: var(--lilac); border-color: var(--lilac); }
+
+/* --- Window and title bar --- */
+
+.window-container {
+    width: min(1180px, 100%);
+    min-height: min(790px, calc(100vh - 56px));
+    display: grid;
+    grid-template-rows: auto 1fr;
+    background: var(--surface);
+    border: 4px solid var(--line);
+    box-shadow: 8px 8px 0 rgba(43, 25, 64, 0.3);
+}
 
 .title-bar {
-    flex: none;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -277,7 +146,7 @@ body {
 
 .title-bar h1 {
     margin: 0;
-    font-family: "Press Start 2P", "Courier New", monospace;
+    font-family: var(--pixel-font);
     font-size: 12px;
     line-height: 1.6;
     text-transform: uppercase;
@@ -291,49 +160,77 @@ body {
     gap: 8px;
 }
 
-.chip {
-    padding: 3px 8px;
-    border: 2px solid var(--surface);
-    font-size: 18px;
-    line-height: 1.2;
-    white-space: nowrap;
-}
-
-.chip[data-state="good"] { background: var(--lime); color: var(--ink); border-color: var(--lime); }
-.chip[data-state="warn"] { background: #ffe08a; color: var(--ink); border-color: #ffe08a; }
-.chip[data-state="unknown"] { color: var(--lilac); border-color: var(--lilac); }
-
-.pixel-button {
-    display: inline-block;
-    padding: 6px 12px;
-    border: 2px solid var(--line);
-    background: var(--violet);
-    color: white;
-    font-family: "Press Start 2P", "Courier New", monospace;
-    font-size: 9px;
-    line-height: 1.6;
-    text-decoration: none;
-    cursor: pointer;
-    box-shadow: 3px 3px 0 var(--line);
-}
-
 .title-bar .pixel-button {
     background: var(--lime);
     color: var(--ink);
 }
 
-.pixel-button:hover {
-    transform: translate(1px, 1px);
-    box-shadow: 2px 2px 0 var(--line);
+.title-bar .pixel-button:focus-visible {
+    outline-color: var(--lime);
 }
 
-.pixel-button:focus-visible,
-.buddy-choice:focus-visible,
-.toggle input:focus-visible,
-.buddy-poke:focus-visible {
-    outline: 3px dashed var(--lime);
-    outline-offset: 2px;
+/* Buddy and camera stack on the left, chat fills the right. */
+.window-content {
+    min-height: 0;
+    padding: 22px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-areas:
+        "buddy  chat"
+        "camera chat";
+    gap: 20px;
 }
+
+#animation-box { grid-area: buddy; }
+#video-box { grid-area: camera; }
+#interaction-box { grid-area: chat; }
+
+/* --- Panels and stages --- */
+
+.panel-box {
+    min-width: 0;
+    min-height: 0;
+    padding: 17px;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border: 3px solid var(--line);
+    box-shadow: var(--shadow);
+}
+
+.panel-box h2 {
+    margin: 0 0 14px;
+    font-family: var(--pixel-font);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.8;
+    text-transform: uppercase;
+}
+
+.stage {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 12px;
+    text-align: center;
+    background-position: 0 0, 8px 8px;
+    background-size: 16px 16px;
+    border: 3px solid var(--line);
+    image-rendering: pixelated;
+}
+
+.stage p {
+    margin: 0;
+}
+
+/* --- Your Buddy --- */
 
 .buddy-panel {
     flex: 1;
@@ -344,26 +241,19 @@ body {
 
 /* Light stage so the black-haired buddies stand out. */
 .buddy-stage {
-    min-width: 0;
+    min-height: 250px;
     gap: 6px;
-    justify-content: flex-end;
-    padding-bottom: 10px;
     background-color: var(--surface-soft);
     background-image:
         linear-gradient(45deg, #e4d2fa 25%, transparent 25%, transparent 75%, #e4d2fa 75%),
         linear-gradient(45deg, #e4d2fa 25%, transparent 25%, transparent 75%, #e4d2fa 75%);
-    border-color: var(--line);
-}
-
-.buddy-stage #animation-caption {
-    color: var(--ink);
 }
 
 .buddy-poke {
     display: flex;
     align-items: flex-end;
     justify-content: center;
-    min-height: 140px;
+    min-height: 150px;
     padding: 0;
     background: none;
     border: 0;
@@ -383,12 +273,28 @@ body {
     50% { transform: translateY(-4px); }
 }
 
+#animation-caption {
+    max-width: 100%;
+    min-height: 15px;
+    color: var(--ink);
+    font-family: var(--pixel-font);
+    font-size: 8px;
+    line-height: 1.8;
+    overflow-wrap: anywhere;
+}
+
+.mood-line {
+    color: var(--muted);
+    font-size: 18px;
+    line-height: 1.2;
+}
+
 .buddy-settings {
     flex: none;
-    width: 200px;
+    width: 210px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
 }
 
 .choice-row {
@@ -401,13 +307,11 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
     padding: 6px 4px;
     background: var(--surface-soft);
     border: 2px solid var(--line);
     color: var(--ink);
     font: inherit;
-    font-size: 18px;
     cursor: pointer;
     box-shadow: 3px 3px 0 rgba(57, 36, 82, 0.18);
 }
@@ -416,25 +320,72 @@ body {
 .buddy-choice[aria-pressed="true"] { background: var(--lime); }
 
 .choice-art {
-    height: 96px;
+    height: 78px;
+    margin-bottom: 4px;
     display: flex;
     align-items: flex-end;
     justify-content: center;
 }
 
 .choice-art img {
-    height: 88px;
+    height: 72px;
     width: auto;
 }
 
 .buddy-choice .name {
-    font-size: 16px;
-    line-height: 1.1;
-    text-align: center;
+    font-size: 19px;
+    line-height: 1;
 }
 
-#feed-buddy {
-    align-self: flex-start;
+.buddy-choice .label {
+    color: var(--muted);
+    font-size: 15px;
+    line-height: 1;
+}
+
+.feed-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.feed-row .pixel-button {
+    padding: 6px 10px;
+}
+
+.needs {
+    display: grid;
+    gap: 5px;
+}
+
+.need {
+    display: grid;
+    grid-template-columns: 76px 1fr;
+    align-items: center;
+    gap: 8px;
+    font-size: 17px;
+    line-height: 1;
+}
+
+.need .bar {
+    height: 10px;
+    background: var(--surface-soft);
+    border: 2px solid var(--line);
+}
+
+.need .bar span {
+    display: block;
+    width: 0;
+    height: 100%;
+    background: var(--violet);
+    transition: width 400ms steps(8, end);
+}
+
+/* Hunger and boredom are bad when high, the rest when low. */
+.need.high[data-need="hunger"] .bar span,
+.need.high[data-need="boredom"] .bar span,
+.need.low:not([data-need="hunger"]):not([data-need="boredom"]) .bar span {
+    background: var(--alert);
 }
 
 .toggle {
@@ -445,23 +396,103 @@ body {
     cursor: pointer;
 }
 
+.toggle:has(input:disabled) {
+    color: var(--muted);
+    cursor: not-allowed;
+}
+
 .toggle input {
     width: 18px;
     height: 18px;
+    margin: 0;
     accent-color: var(--violet);
 }
 
-.small-note {
-    margin: 0;
-    color: var(--muted);
-    font-size: 18px;
-    line-height: 1.3;
+/* --- Camera --- */
+
+.video-stage {
+    min-height: 150px;
+    color: var(--night-text);
+    background-color: var(--night);
+    background-image:
+        linear-gradient(45deg, var(--night-check) 25%, transparent 25%, transparent 75%, var(--night-check) 75%),
+        linear-gradient(45deg, var(--night-check) 25%, transparent 25%, transparent 75%, var(--night-check) 75%);
+    border-color: var(--night-line);
 }
 
+.video-stage p {
+    max-width: 38ch;
+    font-size: 20px;
+    line-height: 1.2;
+}
+
+#camera-feed {
+    display: block;
+    flex: 1;
+    min-height: 0;
+    max-width: 100%;
+    max-height: 360px;
+    object-fit: contain;
+    border: 2px solid var(--night-line);
+}
+
+#camera-feed:not([hidden]) ~ #camera-note {
+    display: none;
+}
+
+.live-badge {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    padding: 5px 8px;
+    background: var(--alert);
+    border: 2px solid var(--night-text);
+    box-shadow: 3px 3px 0 var(--night-line);
+    color: white;
+    font-family: var(--pixel-font);
+    font-size: 8px;
+}
+
+.video-stage .body-status {
+    color: var(--lime);
+    font-size: 18px;
+}
+
+/* --- Chat --- */
+
 #chat-history {
+    /* Grows to fill the panel but never stretches the page as messages pile up. */
+    flex: 1 1 0;
+    min-height: 240px;
+    contain: size;
+    overflow-y: auto;
+    padding: 14px;
     display: flex;
     flex-direction: column;
     gap: 12px;
+    background: var(--surface-soft);
+    border: 3px solid var(--line);
+}
+
+.message {
+    max-width: 88%;
+    margin: 0;
+    padding: 10px 13px;
+    background: white;
+    border: 2px solid var(--line);
+    box-shadow: var(--shadow);
+    font-size: 20px;
+    line-height: 1.35;
+}
+
+.message p {
+    margin: 0;
+}
+
+.message strong {
+    color: var(--violet);
+    font-family: var(--pixel-font);
+    font-size: 9px;
 }
 
 .message.user-message {
@@ -481,9 +512,36 @@ body {
     color: var(--muted);
 }
 
-#interaction-box .small-note {
+#chat-form {
+    margin-top: 14px;
+    display: flex;
+    gap: 9px;
+}
+
+#user-input {
+    min-width: 0;
+    flex: 1;
+    padding: 8px 10px;
+    border: 2px solid var(--line);
+    background: white;
+    color: var(--ink);
+    font: inherit;
+    font-size: 20px;
+}
+
+#user-input::placeholder {
+    color: var(--muted);
+}
+
+#chat-form .pixel-button {
+    padding: 0 16px;
+}
+
+#chat-note {
     margin-top: 10px;
 }
+
+/* --- Install dialog --- */
 
 #install-dialog {
     max-width: min(560px, calc(100vw - 32px));
@@ -502,7 +560,7 @@ body {
 
 #install-dialog h2 {
     margin: 0 0 12px;
-    font-family: "Press Start 2P", "Courier New", monospace;
+    font-family: var(--pixel-font);
     font-size: 11px;
     line-height: 1.8;
 }
@@ -520,9 +578,31 @@ body {
     font-family: inherit;
 }
 
+/* --- Small screens: one column, chat before the camera --- */
+
 @media (max-width: 760px) {
+    body {
+        padding: 14px;
+        place-items: start center;
+    }
+
+    .window-container {
+        min-height: calc(100vh - 28px);
+    }
+
     .title-bar {
         padding: 10px 14px;
+    }
+
+    .window-content {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: none;
+        grid-template-areas:
+            "buddy"
+            "chat"
+            "camera";
+        padding: 14px;
+        gap: 14px;
     }
 
     .buddy-panel {
@@ -533,117 +613,17 @@ body {
         width: 100%;
     }
 
-    .left-column {
-        grid-template-rows: minmax(210px, auto) auto;
+    #chat-history {
+        min-height: 300px;
     }
 }
 
-/* --- Live companion: camera feed, needs, mood --- */
-
-.video-stage {
-    position: relative;
-    gap: 10px;
-    padding: 12px;
-    text-align: center;
-}
-
-#camera-feed {
-    display: block;
-    max-width: 100%;
-    max-height: 100%;
-    min-height: 0;
-    flex: 1;
-    object-fit: contain;
-    border: 2px solid #21162e;
-}
-
-#camera-feed:not([hidden]) ~ #camera-note {
-    display: none;
-}
-
-#camera-badge {
-    position: absolute;
-    top: 10px;
-    left: 10px;
-    background: #d64561;
-}
-
-#camera-note {
-    max-width: 34ch;
-}
-
-.body-status {
-    margin: 0;
-    font-size: 18px;
-    color: var(--lime);
-}
-
-.mood-line {
-    margin: 0;
-    color: var(--muted);
-    font-size: 17px;
-    line-height: 1.2;
-    text-align: center;
-}
-
-.buddy-settings {
-    overflow-y: auto;
-    padding-right: 4px;
-}
-
-.feed-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-}
-
-.feed-row .pixel-button {
-    padding: 6px 10px;
-}
-
-.pixel-button:disabled {
-    background: var(--surface-soft);
-    color: var(--muted);
-    cursor: not-allowed;
-    box-shadow: none;
-    transform: none;
-}
-
-.needs {
-    display: grid;
-    gap: 4px;
-}
-
-.need {
-    display: grid;
-    grid-template-columns: 76px 1fr;
-    align-items: center;
-    gap: 8px;
-    font-size: 16px;
-    line-height: 1;
-}
-
-.need .bar {
-    height: 10px;
-    background: var(--surface-soft);
-    border: 2px solid var(--line);
-}
-
-.need .bar span {
-    display: block;
-    height: 100%;
-    width: 0;
-    background: var(--violet);
-    transition: width 400ms steps(8, end);
-}
-
-/* Hunger and boredom are "bad when high": warn in the same bar style. */
-.need.high[data-need="hunger"] .bar span,
-.need.high[data-need="boredom"] .bar span,
-.need.low:not([data-need="hunger"]):not([data-need="boredom"]) .bar span {
-    background: #d64561;
-}
-
-#feed-buddy {
-    align-self: auto;
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+    }
 }

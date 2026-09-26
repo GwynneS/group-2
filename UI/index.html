@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Buddy Interface</title>
+    <title>AI Buddy</title>
     <link rel="stylesheet" href="colorScheme.css">
 </head>
 <body>
@@ -18,59 +18,59 @@
         </header>
 
         <div class="window-content">
-            <div class="left-column">
-                <section id="video-box" class="panel-box">
-                    <h2>Video Feed</h2>
-                    <div class="media-placeholder video-stage">
-                        <img id="camera-feed" alt="Your webcam, with the body tracking skeleton" hidden>
-                        <span id="camera-badge" class="media-icon" aria-hidden="true" hidden>LIVE</span>
-                        <p id="camera-note">Turn on the camera and your buddy notices when you sit down, take a break, lean in or wave.</p>
-                        <p id="body-status" class="body-status" role="status" hidden></p>
-                        <button type="button" id="camera-toggle" class="pixel-button">Start camera</button>
+            <section id="animation-box" class="panel-box">
+                <h2>Your Buddy</h2>
+                <div class="buddy-panel">
+                    <div class="stage buddy-stage">
+                        <button type="button" id="buddy-poke" class="buddy-poke" aria-label="Give your buddy a headpat">
+                            <span class="buddy-pose"><img id="buddy-figure" class="buddy-figure emo-happy" alt=""></span>
+                        </button>
+                        <p id="animation-caption" role="status"></p>
+                        <p id="mood-line" class="mood-line"></p>
                     </div>
-                </section>
-
-                <section id="animation-box" class="panel-box">
-                    <h2>Your Buddy</h2>
-                    <div class="buddy-panel">
-                        <div class="media-placeholder buddy-stage">
-                            <button type="button" id="buddy-poke" class="buddy-poke" aria-label="Give your buddy a headpat">
-                                <span class="buddy-pose"><img id="buddy-figure" class="buddy-figure emo-happy" alt=""></span>
+                    <div class="buddy-settings">
+                        <div class="choice-row" role="group" aria-label="Choose your buddy">
+                            <button type="button" class="buddy-choice" data-char="girl" aria-pressed="false">
+                                <span class="choice-art"><span class="buddy-pose"><img class="buddy-figure emo-happy" alt=""></span></span>
+                                <span class="name"></span>
+                                <span class="label"></span>
                             </button>
-                            <p id="animation-caption" role="status"></p>
-                            <p id="mood-line" class="mood-line"></p>
+                            <button type="button" class="buddy-choice" data-char="boy" aria-pressed="false">
+                                <span class="choice-art"><span class="buddy-pose"><img class="buddy-figure emo-happy" alt=""></span></span>
+                                <span class="name"></span>
+                                <span class="label"></span>
+                            </button>
                         </div>
-                        <div class="buddy-settings">
-                            <div class="choice-row" role="group" aria-label="Choose your buddy">
-                                <button type="button" class="buddy-choice" data-char="girl" aria-pressed="false">
-                                    <span class="choice-art"><span class="buddy-pose"><img class="buddy-figure emo-happy" alt=""></span></span>
-                                    <span class="name"></span>
-                                </button>
-                                <button type="button" class="buddy-choice" data-char="boy" aria-pressed="false">
-                                    <span class="choice-art"><span class="buddy-pose"><img class="buddy-figure emo-happy" alt=""></span></span>
-                                    <span class="name"></span>
-                                </button>
-                            </div>
-                            <div class="feed-row">
-                                <button type="button" id="feed-buddy" class="pixel-button">Feed</button>
-                                <button type="button" id="treat-buddy" class="pixel-button" disabled title="Treats are earned by 25 minutes of focused work">Treat ×0</button>
-                            </div>
-                            <div id="needs" class="needs" aria-label="Your buddy's needs" hidden>
-                                <div class="need" data-need="hunger"><span>Hunger</span><span class="bar"><span></span></span></div>
-                                <div class="need" data-need="energy"><span>Energy</span><span class="bar"><span></span></span></div>
-                                <div class="need" data-need="attention"><span>Attention</span><span class="bar"><span></span></span></div>
-                                <div class="need" data-need="affection"><span>Affection</span><span class="bar"><span></span></span></div>
-                                <div class="need" data-need="boredom"><span>Boredom</span><span class="bar"><span></span></span></div>
-                            </div>
-                            <label class="toggle" for="show-on-sites">
-                                <input type="checkbox" id="show-on-sites">
-                                Show on websites
-                            </label>
-                            <p id="pet-count" class="small-note"></p>
+                        <div class="feed-row">
+                            <button type="button" id="feed-buddy" class="pixel-button">Feed</button>
+                            <button type="button" id="treat-buddy" class="pixel-button" disabled hidden title="Treats are earned by 25 minutes of focused work">Treat ×0</button>
                         </div>
+                        <div id="needs" class="needs" aria-label="Your buddy's needs" hidden>
+                            <div class="need" data-need="hunger"><span>Hunger</span><span class="bar"><span></span></span></div>
+                            <div class="need" data-need="energy"><span>Energy</span><span class="bar"><span></span></span></div>
+                            <div class="need" data-need="attention"><span>Attention</span><span class="bar"><span></span></span></div>
+                            <div class="need" data-need="affection"><span>Affection</span><span class="bar"><span></span></span></div>
+                            <div class="need" data-need="boredom"><span>Boredom</span><span class="bar"><span></span></span></div>
+                        </div>
+                        <label class="toggle" for="show-on-sites">
+                            <input type="checkbox" id="show-on-sites">
+                            Show on websites
+                        </label>
+                        <p id="pet-count" class="small-note"></p>
                     </div>
-                </section>
-            </div>
+                </div>
+            </section>
+
+            <section id="video-box" class="panel-box">
+                <h2>Camera</h2>
+                <div class="stage video-stage">
+                    <img id="camera-feed" alt="Your webcam, with the body tracking skeleton" hidden>
+                    <span id="camera-badge" class="live-badge" aria-hidden="true" hidden>LIVE</span>
+                    <p id="camera-note">Turn on the camera and your buddy notices when you sit down, take a break, lean in or wave.</p>
+                    <p id="body-status" class="body-status" role="status" hidden></p>
+                    <button type="button" id="camera-toggle" class="pixel-button" hidden>Start camera</button>
+                </div>
+            </section>
 
             <section id="interaction-box" class="panel-box">
                 <h2>Chat</h2>
@@ -79,7 +79,7 @@
                 <form id="chat-form">
                     <label class="sr-only" for="user-input">Message Buddy</label>
                     <input type="text" id="user-input" name="user-input" placeholder="Type a message..." autocomplete="off" required>
-                    <button type="submit">Send</button>
+                    <button type="submit" class="pixel-button">Send</button>
                 </form>
                 <p id="chat-note" class="small-note">Chats here and on other websites share one history once the extension is installed.</p>
             </section>
