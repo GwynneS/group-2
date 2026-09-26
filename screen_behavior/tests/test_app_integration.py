@@ -1,13 +1,15 @@
 """
 UI <-> brain <-> browser-extension integration.
 
-Runs the real app server (UI/server.py) on a free port with a real brain
-fed by simulated sensors, and talks to it over HTTP the same way UI/app.js,
-UI/animation.js and the extension's background.js do.
+Runs the real app server (UI/server.py) with the real companion hub
+(UI/companion.py) on a free port, and talks to it over HTTP the same way the
+extension's background.js does. UI/tests/test_companion.py covers the hub's
+own routes (presence, interact, camera, chat).
 """
 import json
-import random
+import subprocess
 import unittest
+from pathlib import Path
 from threading import Thread
 from types import SimpleNamespace
 from urllib.error import HTTPError
@@ -18,16 +20,16 @@ from screen_behavior.awareness.browser import BrowserActivityTracker
 from screen_behavior.awareness.keyboard import KeyboardActivityTracker
 from screen_behavior.awareness.models import ActivityType, Shortcut, WindowInfo
 from screen_behavior.awareness.service import AwarenessService
-from screen_behavior.integration.brain import CompanionBrain
 from screen_behavior.integration.presenter import (
     ANIMATIONS,
     offline_state,
     present,
 )
-from screen_behavior.integration.runtime import BuddyRuntime
-from screen_behavior.pet.behavior import BehaviorEngine
 from screen_behavior.simulation import SimBackend, SimClock
-from UI.server import make_server
+from UI import server as app_server
+from UI.companion import CompanionService
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 class FakeClock:
@@ -229,30 +231,24 @@ class PresenterTests(unittest.TestCase):
         self.assertEqual(state["onpage_mode"], "idle")
 
 
-def make_runtime(clock):
-    service, backend = sim_service(clock)
-    brain = CompanionBrain(
-        awareness=service,
-        behavior=BehaviorEngine(rng=random.Random(3), clock=clock),
-        clock=clock,
-    )
-    return BuddyRuntime(lambda: brain), backend
-
-
 class AppServerTests(unittest.TestCase):
-    """The same HTTP calls UI/app.js, animation.js and background.js make."""
+    """The HTTP calls the extension's background.js makes."""
 
-    def setUp(self):
-        self.clock = SimClock()
-        self.runtime, self.backend = make_runtime(self.clock)
-        self.runtime.tick()
-        self.server = make_server("127.0.0.1", 0, runtime=self.runtime)
-        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
-        Thread(target=self.server.serve_forever, daemon=True).start()
+    @classmethod
+    def setUpClass(cls):
+        cls.companion = CompanionService(native_awareness=False)
+        cls.companion.tick()
+        app_server.companion = cls.companion
+        cls.server = app_server.make_server("127.0.0.1", 0)
+        cls.url = f"http://127.0.0.1:{cls.server.server_address[1]}"
+        Thread(target=cls.server.serve_forever, daemon=True).start()
 
-    def tearDown(self):
-        self.server.shutdown()
-        self.server.server_close()
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+        cls.companion.close()
+        app_server.companion = None
 
     def get(self, path):
         with urlopen(self.url + path, timeout=3) as res:
@@ -268,102 +264,45 @@ class AppServerTests(unittest.TestCase):
         with urlopen(req, timeout=3) as res:
             return json.load(res)
 
-    def test_state_route_serves_presented_brain_state(self):
+    def test_state_has_animation_and_brain_details(self):
         state = self.get("/api/state")
 
-        self.assertEqual(state["brain"], "running")
         self.assertIn(state["animation"], ANIMATIONS)
-        self.assertIn("hunger", state["needs"])
+        self.assertIn("reason", state["pet"])
+        self.assertEqual(state["feeding"], {"food": "fish"})
 
-    def test_status_reports_brain(self):
-        self.assertEqual(self.get("/api/status")["brain"], "running")
+    def test_feeding_gives_fish(self):
+        self.companion.brain.pet.hunger = 60
+        result = self.post("/api/interact", {"action": "feed", "food": "wet"})
 
-    def test_page_loads_both_animation_scripts(self):
-        with urlopen(self.url + "/", timeout=3) as res:
-            page = res.read().decode()
+        self.assertTrue(result["accepted"])
+        self.assertLess(self.companion.brain.pet.hunger, 60)
 
-        self.assertNotIn("<<<<<<<", page)
-        self.assertIn("app.js", page)
-        self.assertIn("animation.js", page)
-        self.assertIn('id="buddy-sprite"', page)
-        self.assertIn('id="buddy-canvas"', page)
-        self.assertIn('id="feed-button"', page)
+    def test_extension_heartbeat_reaches_the_brain(self):
+        result = self.post("/api/browser-activity", {**HEARTBEAT, "keys": 9})
+        self.assertTrue(result["ok"])
 
-    def test_feed_reaches_the_brain(self):
-        self.runtime.brain.pet.hunger = 60
+        context = self.companion.brain.awareness.snapshot()
+        self.assertEqual(context.browser.host, "www.youtube.com")
+        self.assertEqual(context.browser.keys_last_minute, 9)
+        # Without native awareness, the heartbeat's tab is the foreground.
+        self.assertIn("youtube", context.foreground.title.lower())
+        self.assertEqual(context.leading_activity, ActivityType.VIDEO)
 
-        first = self.post("/api/feed", {})
-        self.runtime.brain.pet.hunger = 5
-        second = self.post("/api/feed", {})
+    def test_page_and_extension_assets_load(self):
+        for path in ["/", "/app.js", "/animation.js", "/extension/characters.js"]:
+            with self.subTest(path), urlopen(self.url + path, timeout=3) as res:
+                self.assertNotIn(b"<<<<<<<", res.read())
 
-        self.assertTrue(first["accepted"])
-        self.assertFalse(second["accepted"])
 
-    def test_headpat_reaches_the_brain(self):
-        before = self.runtime.brain.pet.attention
-
-        self.post("/api/interact", {"type": "pet"})
-
-        self.assertGreater(self.runtime.brain.pet.attention, before)
-        self.assertTrue(
-            self.runtime.brain.behavior.memory_snapshot().recently_interacted_with
+class RepositoryHealthTests(unittest.TestCase):
+    def test_no_committed_merge_conflict_markers(self):
+        """A merge committed with conflict markers breaks the whole app."""
+        out = subprocess.run(
+            ["git", "grep", "-l", "-E", "^(<<<<<<<|>>>>>>>) ", "--", "."],
+            cwd=ROOT, capture_output=True, text=True,
         )
-
-    def test_unknown_interaction_is_rejected(self):
-        with self.assertRaises(HTTPError) as ctx:
-            self.post("/api/interact", {"type": "tickle"})
-        self.assertEqual(ctx.exception.code, 400)
-        ctx.exception.close()
-
-    def test_extension_heartbeat_changes_what_the_brain_sees(self):
-        self.post("/api/browser-activity", HEARTBEAT)
-        self.clock.value += 1
-        state = self.runtime.tick()
-
-        self.assertEqual(state["user"]["host"], "www.youtube.com")
-        self.assertEqual(
-            self.runtime.brain.awareness.snapshot().leading_activity,
-            ActivityType.VIDEO,
-        )
-
-
-class NoBrainServerTests(unittest.TestCase):
-    def test_ui_still_works_without_brain(self):
-        server = make_server("127.0.0.1", 0)
-        url = f"http://127.0.0.1:{server.server_address[1]}"
-        Thread(target=server.serve_forever, daemon=True).start()
-        try:
-            with urlopen(url + "/api/state", timeout=3) as res:
-                self.assertEqual(json.load(res)["brain"], "offline")
-            req = Request(url + "/api/feed", data=b"{}", method="POST")
-            with self.assertRaises(HTTPError) as ctx:
-                urlopen(req, timeout=3)
-            self.assertEqual(ctx.exception.code, 503)
-            ctx.exception.close()
-        finally:
-            server.shutdown()
-            server.server_close()
-
-
-class RuntimeTests(unittest.TestCase):
-    def test_background_loop_updates_state_and_stops(self):
-        clock = SimClock()
-        runtime, _ = make_runtime(clock)
-        runtime._interval = 0.01
-        seen = []
-        runtime.add_listener(seen.append)
-
-        runtime.start()
-        try:
-            import time
-            deadline = time.time() + 2
-            while len(seen) < 3 and time.time() < deadline:
-                time.sleep(0.01)
-        finally:
-            runtime.stop()
-
-        self.assertGreaterEqual(len(seen), 3)
-        self.assertEqual(runtime.state()["brain"], "running")
+        self.assertEqual(out.stdout.strip(), "", "files with conflict markers")
 
 
 if __name__ == "__main__":

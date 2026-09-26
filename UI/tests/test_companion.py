@@ -68,11 +68,12 @@ class CompanionServiceTests(unittest.TestCase):
         self.assertIn("full", second["message"])
         self.assertEqual(self.service.state()["animation"], "sad")
 
-    def test_treat_needs_earned_wet_food(self):
+    def test_fish_is_the_only_food(self):
+        # The brain only has fish; an old "wet" treat request just feeds fish.
         self.service.brain.pet.hunger = 60
         result = self.service.interact("feed", "wet")
-        self.assertFalse(result["accepted"])
-        self.assertIn("wet food", result["message"])
+        self.assertTrue(result["accepted"])
+        self.assertEqual(self.service.state()["feeding"], {"food": "fish"})
 
     def test_unknown_interaction_is_rejected(self):
         self.assertFalse(self.service.interact("hug")["accepted"])
