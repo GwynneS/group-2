@@ -90,43 +90,29 @@ python3 -m screen_behavior.demo_v04
 
 ### Running the whole app (UI + brain + extension)
 
-One server runs everything: the Buddy UI, chat, the extension download, and
-this companion brain.
+See the project README for the full picture. Short version:
 
 ```bash
-python3 UI/server.py          # then open http://127.0.0.1:8765
-python3 UI/server.py --mic    # also let a loud yell wake buddy from play-dead
-python3 UI/server.py --no-brain
+python3 UI/server.py --open          # http://127.0.0.1:8765
+python3 UI/server.py --camera --mic  # + webcam body tracking, + yell-to-wake
 ```
 
-How the pieces connect:
+`UI/server.py` runs `UI/companion.py` (the UI team's hub), which owns one
+`CompanionBrain` and ticks it every second. What this subsystem contributes
+to that hub:
 
-```text
- OS sensors ─┐                                   ┌─> UI/app.js       (character pose, caption,
- (screen,    │                                   │                    mood/needs panel, Feed fish)
- keyboard,   ├─> CompanionBrain ─> presenter ─> GET /api/state ─┼─> UI/animation.js (7 detailed animations)
- mouse, mic) │        ^                          │
-             │        │                          └─> extension background.js ─> buddy.js on every site
- extension ──┘        │                                              (sleep / wander / follow / cheer)
- heartbeats           │
- (host, title, ───────┘  POST /api/browser-activity
- clicks, keys,           POST /api/interact {"type": "pet"}   <- headpats (app page or any website)
- copies, pastes,         POST /api/feed                        <- Feed fish button
- scroll)                 POST /api/chat                        <- chat also counts as attention
-```
-
-- `screen_behavior/integration/presenter.py` is the only contract between the
-  brain and the animations. It maps each update to one of the 7
-  `UI/animation.js` states, a `pose` for `sprites.js`, and an `onpage_mode`
-  for the on-page buddy. Change the mapping there, not in the front ends.
-- The extension sends a heartbeat every 5s while a page is in view (counts
-  since the last heartbeat, host, title, scroll %). When the browser is in
-  front, its page title and host sharpen activity detection (e.g. YouTube →
-  video, Google Docs → studying). When OS keyboard monitoring is unavailable
-  (macOS permission not granted), in-browser key/copy/paste counts stand in.
-- Without the app running, the extension's buddy falls back to its own
-  wander/sleep behavior; without the brain (`--no-brain`), the UI still
-  works and `/api/state` reports `"brain": "offline"`.
+- `/api/state` reports the brain's behavior, the utility `reason`, needs,
+  mood, activity and `user_state`. `animation_for_update()`
+  (`integration/presenter.py`, re-exported by `animation_bridge.py`) maps a
+  brain update to one of the 7 emotions.
+- Feeding is `brain.feed()`: fish is the only food; the pet refuses when full.
+- `POST /api/browser-activity` receives the extension's 5-second heartbeats
+  (counts only: clicks, keys, copies, pastes, scroll, active time, plus tab
+  title/host) and feeds them to `AwarenessService.record_browser_activity()`.
+  The tab's title/host sharpens activity detection, and in-browser key counts
+  stand in for typing when OS keyboard monitoring isn't permitted.
+- `--mic` enables loudness detection (never recorded) so a yell wakes a pet
+  that's playing dead.
 
 ### Driving the UI from your own script
 
