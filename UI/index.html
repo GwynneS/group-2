@@ -4,79 +4,54 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Buddy Interface</title>
-    <!-- Your standard variables and palette -->
     <link rel="stylesheet" href="colorScheme.css">
-    <!-- Your layout structure sheet -->
-    <link rel="stylesheet" href="layout.css">
 </head>
 <body>
-
-    <main>
-        <!-- Mac Title Bar Component -->
-    <div class="window-header">
-        <div class="window-controls">
-            <button class="control-btn close" aria-label="Close"></button>
-            <button class="control-btn minimize" aria-label="Minimize"></button>
-            <button class="control-btn maximize" aria-label="Maximize"></button>
-        </div>
-        <div class="window-title">AI Buddy Interface</div>
-        <div style="width: 52px;"></div> <!-- Balancing spacer -->
-    </div>
-
-    <!-- Interior Content Layout Window -->
-    <div class="window-content">
-        <div class="left-column">
-            <!-- Video, Graphics, and Meter panels go here -->
-        </div>
-        <section id="interaction-box" class="panel-box">
-            <!-- Chat panels go here -->
-        </section>
-    </div>
-        <!-- LEFT SIDE DATA PANEL -->
-        <div class="left-column">
-            
-            <!-- Top Left: Video Stream Box -->
-            <section id="video-box" class="panel-box">
-                <h2>Live Video Feed</h2>
-                <div class="media-placeholder">
-                    <p>[ Camera Feed Ready ]</p>
-                </div>
-            </section>
-
-            <!-- Bottom Left: Analytics / Graphics Box -->
-            <section id="graphics-box" class="panel-box">
-                <h2>Graphics & Expression</h2>
-                <div class="media-placeholder">
-                    <p>[ Live Matrix Data Graphic ]</p>
-                </div>
-            </section>
-
-            <!-- Original Character Status Area -->
-            <section id="idle-box" class="panel-box">
-                <figure class="meter-wrapper">
-                    <figcaption>
-                        <label for="happiness-bar"><strong>Buddy Happiness Level:</strong></label>
-                        <meter id="happiness-bar" min="0" max="100" low="30" high="75" optimum="100" value="80">80%</meter>
-                    </figcaption>
-                </figure>
-            </section>
-            
-        </div>
-
-        <!-- RIGHT SIDE INTERACTION (CHAT LOG) -->
-        <section id="interaction-box" class="panel-box">
-            <h2>Conversation Log</h2>
-            <div id="chat-history" role="log" aria-live="polite">
-                <article class="message ai-message">
-                    <p><strong>Buddy:</strong> Hello! What can I help you with today?</p>
-                </article>
+    <main class="window-container">
+        <header class="window-header">
+            <div class="window-controls" aria-hidden="true">
+                <span class="control-btn close"></span>
+                <span class="control-btn minimize"></span>
+                <span class="control-btn maximize"></span>
             </div>
-            
-            <form id="chat-form">
-                <input type="text" id="user-input" name="user-input" placeholder="Say something nice..." required>
-                <button type="submit">Send</button>
-            </form>
-        </section>
+            <h1 class="window-title">AI Buddy</h1>
+            <span class="header-spacer" aria-hidden="true"></span>
+        </header>
+
+        <div class="window-content">
+            <div class="left-column">
+                <section id="video-box" class="panel-box">
+                    <h2>Video Feed</h2>
+                    <div class="media-placeholder" aria-label="Video feed placeholder">
+                        <span class="media-icon" aria-hidden="true">LIVE</span>
+                        <p>Camera feed will appear here</p>
+                    </div>
+                </section>
+
+                <section id="animation-box" class="panel-box">
+                    <h2>Imported Animation</h2>
+                    <div class="media-placeholder animation-placeholder" aria-label="Imported animation placeholder">
+                        <div class="animation-orbit" aria-hidden="true"><span></span></div>
+                        <p>Your animation will appear here</p>
+                    </div>
+                </section>
+            </div>
+
+            <section id="interaction-box" class="panel-box">
+                <h2>Chat</h2>
+                <div id="chat-history" role="log" aria-live="polite" aria-label="Chat log">
+                    <article class="message ai-message">
+                        <p><strong>Buddy</strong><br>Hello! What can I help you with today?</p>
+                    </article>
+                </div>
+
+                <form id="chat-form">
+                    <label class="sr-only" for="user-input">Message Buddy</label>
+                    <input type="text" id="user-input" name="user-input" placeholder="Type a message..." required>
+                    <button type="submit">Send</button>
+                </form>
+            </section>
+        </div>
     </main>
 
 </body>
