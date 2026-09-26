@@ -1,6 +1,8 @@
 // The on-page buddy: a pixel cat girl or cat boy that drifts around the
 // browser window, follows the cursor now and then, reacts to copy/paste,
 // can be petted (click) or moved (drag), and falls asleep when you're idle.
+// Right-click it to chat; the conversation is shared with the Buddy app
+// (UI/server.py) and every other tab.
 //
 // Preference lives in storage.local under `buddy`:
 //   { character: "girl" | "boy" | null, visible: boolean }
@@ -9,6 +11,8 @@
 
 (() => {
   if (window.top !== window || !document.documentElement) return;
+  // The Buddy app page shows its own buddy; don't add a second one there.
+  if (/^(127\.0\.0\.1|localhost)$/.test(location.hostname) && location.port === "8765") return;
 
   const api = globalThis.browser ?? globalThis.chrome;
   const S = globalThis.BuddySprites;
@@ -110,6 +114,42 @@
         transform: translateX(${((S.W - S.BODY_W) / 2) * SCALE}px);
       }
       .picker p { margin: 10px 0 0; font-size: 8px; line-height: 1.6; color: #715d88; }
+
+      .chat {
+        position: fixed; right: 16px; bottom: 16px; width: 280px; height: 340px;
+        max-width: calc(100vw - 32px); max-height: calc(100vh - 32px);
+        display: flex; flex-direction: column; pointer-events: auto;
+        background: #fff8df; color: #2b1940;
+        border: 3px solid #392452; box-shadow: 4px 4px 0 rgba(43, 25, 64, 0.3);
+      }
+      .chat header {
+        display: flex; align-items: center; justify-content: space-between; gap: 8px;
+        padding: 6px 8px; background: #43245e; color: #fff8df; font-size: 9px; line-height: 1.6;
+      }
+      .chat header button { all: unset; cursor: pointer; padding: 0 4px; font-size: 10px; color: #fff8df; }
+      .chat header button:focus-visible { outline: 2px dashed #c6ed78; }
+      .chat .log {
+        flex: 1; min-height: 0; overflow-y: auto; padding: 8px;
+        display: flex; flex-direction: column; gap: 8px; background: #eee0ff;
+      }
+      .chat .msg {
+        max-width: 88%; padding: 6px 8px; background: #ffffff; border: 2px solid #392452;
+        font-size: 8px; line-height: 1.7; overflow-wrap: anywhere;
+      }
+      .chat .msg.user { align-self: flex-end; background: #fff8df; }
+      .chat .msg.error { border-style: dashed; }
+      .chat .msg.typing { color: #715d88; }
+      .chat .msg b { display: block; color: #7046a0; }
+      .chat form { display: flex; gap: 6px; padding: 8px; border-top: 2px solid #392452; }
+      .chat input {
+        all: unset; flex: 1; min-width: 0; padding: 6px 8px; background: #ffffff;
+        border: 2px solid #392452; font-size: 8px; line-height: 1.6; color: #2b1940;
+      }
+      .chat form button {
+        all: unset; cursor: pointer; padding: 6px 8px; background: #7046a0; color: #ffffff;
+        border: 2px solid #392452; font-size: 8px; line-height: 1.6;
+      }
+      .chat input:focus-visible, .chat form button:focus-visible { outline: 2px dashed #7046a0; outline-offset: 1px; }
     </style>
     <div class="wrap" hidden>
       <div class="bubble" hidden></div>
@@ -124,6 +164,14 @@
       </div>
       <p>You can switch any time: right-click your buddy or use the toolbar icon.</p>
     </div>
+    <section class="chat" hidden aria-label="Chat with your buddy">
+      <header><span class="chat-title"></span><button type="button" class="close" aria-label="Close chat">✕</button></header>
+      <div class="log" role="log" aria-live="polite"></div>
+      <form>
+        <input type="text" maxlength="2000" placeholder="Say something…" aria-label="Message" autocomplete="off">
+        <button type="submit">Send</button>
+      </form>
+    </section>
   `;
 
   const wrap = root.querySelector(".wrap");
@@ -132,6 +180,9 @@
   const bubble = root.querySelector(".bubble");
   const menu = root.querySelector(".menu");
   const picker = root.querySelector(".picker");
+  const chatPanel = root.querySelector(".chat");
+  const chatLog = chatPanel.querySelector(".log");
+  const chatInput = chatPanel.querySelector("input");
 
   for (const btn of picker.querySelectorAll("button")) {
     S.draw(btn.querySelector("canvas").getContext("2d"), btn.dataset.char, {}, SCALE);
@@ -145,7 +196,7 @@
     y: innerHeight - BH - 40,
     tx: 0,
     ty: 0,
-    mode: "idle", // idle | wander | follow | sleep
+    mode: "idle", // idle | wander | follow | sleep | chat
     modeUntil: 0,
     facingLeft: false,
     nextBlink: 0,
@@ -205,7 +256,7 @@
   function update(now, dt) {
     if (drag) return false;
 
-    if (st.mode !== "sleep" && Date.now() - st.lastInput > SLEEP_AFTER_MS) {
+    if (st.mode !== "sleep" && st.mode !== "chat" && Date.now() - st.lastInput > SLEEP_AFTER_MS) {
       setMode("sleep");
       say("Zzz...", 0);
     }
@@ -232,6 +283,13 @@
         const tx = clamp(st.mouse.x + side, EDGE, innerWidth - BW - EDGE);
         const ty = clamp(st.mouse.y - BH / 2, TOP_ROOM, innerHeight - BH - EDGE);
         moving = !moveToward(tx, ty, 120, dt);
+        break;
+      }
+      case "chat": {
+        // Sit just to the left of the chat panel.
+        const r = chatPanel.getBoundingClientRect();
+        moving = !moveToward(r.left - BW - 4, r.bottom - BH, 160, dt);
+        if (!moving) st.facingLeft = false;
         break;
       }
     }
@@ -324,7 +382,7 @@
   function pet() {
     const now = performance.now();
     st.happyUntil = now + 1500;
-    setMode("idle", 3000);
+    if (chatPanel.hidden) setMode("idle", 3000);
     say(pick(lines().pet), 2200);
     for (let i = 0; i < 3; i++) {
       const heart = document.createElement("span");
@@ -346,7 +404,9 @@
     const other = prefs.character === "girl" ? "boy" : "girl";
     const o = S.CHARACTERS[other];
     menu.innerHTML = "";
+    const me = S.CHARACTERS[prefs.character];
     const items = [
+      [`Chat with ${me.name}`, openChat],
       [`Switch to ${o.name} (${o.label})`, () => savePrefs({ ...prefs, character: other })],
       ["Hide buddy", () => savePrefs({ ...prefs, visible: false })],
     ];
@@ -361,13 +421,84 @@
     }
     menu.hidden = false;
     menu.style.left = `${clamp(e.clientX, 8, innerWidth - 190)}px`;
-    menu.style.top = `${clamp(e.clientY, 8, innerHeight - 90)}px`;
+    menu.style.top = `${clamp(e.clientY, 8, innerHeight - 130)}px`;
   });
 
   addEventListener("pointerdown", (e) => {
     // The shadow root is closed, so from out here the path stops at `host`.
     if (!menu.hidden && !e.composedPath().includes(host)) menu.hidden = true;
   }, true);
+
+  // --- Chat ----------------------------------------------------------------
+
+  let chatHistory = [];
+  let chatWaiting = false;
+
+  function openChat() {
+    chatPanel.querySelector(".chat-title").textContent = `Chat with ${S.CHARACTERS[prefs.character].name}`;
+    chatPanel.hidden = false;
+    setMode("chat");
+    wake();
+    renderChat();
+    api.storage.local.get("chat").then(({ chat = [] }) => {
+      chatHistory = chat;
+      renderChat();
+    });
+    chatInput.focus();
+  }
+
+  function closeChat() {
+    chatPanel.hidden = true;
+    setMode("idle", rand(1500, 3000));
+  }
+
+  function renderChat() {
+    const name = S.CHARACTERS[prefs.character ?? "girl"].name;
+    const rows = chatHistory.length
+      ? chatHistory
+      : [{ role: "buddy", text: `Hi! I'm ${name}. What are we working on?` }];
+    chatLog.replaceChildren();
+    const add = (role, text, cls = "") => {
+      const div = document.createElement("div");
+      div.className = `msg ${role === "user" ? "user" : ""} ${cls}`.trim();
+      const who = document.createElement("b");
+      who.textContent = role === "user" ? "You" : name;
+      div.append(who, text);
+      chatLog.append(div);
+    };
+    for (const m of rows) add(m.role, m.text, m.error ? "error" : "");
+    if (chatWaiting) add("buddy", "…", "typing");
+    chatLog.scrollTop = chatLog.scrollHeight;
+  }
+
+  chatPanel.querySelector(".close").addEventListener("click", closeChat);
+
+  chatPanel.querySelector("form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const text = chatInput.value.trim();
+    if (!text || chatWaiting) return;
+    chatInput.value = "";
+    chatWaiting = true;
+    renderChat();
+    try {
+      // The background script records both sides; the storage listener
+      // below re-renders the log here and in every other tab.
+      await api.runtime.sendMessage({ type: "chat", text });
+      st.happyUntil = performance.now() + 1200;
+    } catch {
+      // Extension was reloaded; this page's script is orphaned.
+    }
+    chatWaiting = false;
+    renderChat();
+  });
+
+  // Keep typing in the chat from triggering the website's own shortcuts.
+  for (const type of ["keydown", "keyup", "keypress"]) {
+    chatPanel.addEventListener(type, (e) => {
+      e.stopPropagation();
+      if (type === "keydown" && e.key === "Escape") closeChat();
+    });
+  }
 
   // --- Reactions to the user ----------------------------------------------
 
@@ -437,14 +568,24 @@
     if (!shouldShow()) {
       stop();
       bubble.hidden = true;
+      chatPanel.hidden = true;
       return;
+    }
+    if (!chatPanel.hidden) {
+      chatPanel.querySelector(".chat-title").textContent = `Chat with ${S.CHARACTERS[prefs.character].name}`;
+      renderChat();
     }
     if (previous?.character !== prefs.character) say(pick(lines().greet));
     if (document.visibilityState === "visible") start();
   }
 
   api.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local" || !changes.buddy) return;
+    if (area !== "local") return;
+    if (changes.chat) {
+      chatHistory = changes.chat.newValue ?? [];
+      if (!chatPanel.hidden) renderChat();
+    }
+    if (!changes.buddy) return;
     const previous = prefs;
     prefs = { character: null, visible: true, ...changes.buddy.newValue };
     apply(previous);

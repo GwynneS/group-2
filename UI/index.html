@@ -8,6 +8,15 @@
 </head>
 <body>
     <main class="window-container">
+        <header class="title-bar">
+            <h1>AI Buddy</h1>
+            <div class="status-row">
+                <span id="ai-status" class="chip" data-state="unknown">AI: checking…</span>
+                <span id="ext-status" class="chip" data-state="unknown">Extension: checking…</span>
+                <a id="download-extension" class="pixel-button" href="/download/buddy-extension.zip" download>Download extension</a>
+            </div>
+        </header>
+
         <div class="window-content">
             <div class="left-column">
                 <section id="video-box" class="panel-box">
@@ -19,30 +28,57 @@
                 </section>
 
                 <section id="animation-box" class="panel-box">
-                    <h2>Imported Animation</h2>
-                    <div class="media-placeholder animation-placeholder" aria-label="Imported animation placeholder">
-                        <div class="animation-orbit" aria-hidden="true"><span></span></div>
-                        <p>Your animation will appear here</p>
+                    <h2>Your Buddy</h2>
+                    <div class="buddy-panel">
+                        <div class="media-placeholder buddy-stage">
+                            <canvas id="buddy-canvas" aria-label="Your buddy. Click to give a headpat."></canvas>
+                            <p id="buddy-caption">Click to give a headpat</p>
+                        </div>
+                        <div class="buddy-settings">
+                            <div class="choice-row" role="group" aria-label="Choose your buddy">
+                                <button type="button" class="buddy-choice" data-char="girl" aria-pressed="false">
+                                    <canvas></canvas><span class="name"></span>
+                                </button>
+                                <button type="button" class="buddy-choice" data-char="boy" aria-pressed="false">
+                                    <canvas></canvas><span class="name"></span>
+                                </button>
+                            </div>
+                            <label class="toggle" for="show-on-sites">
+                                <input type="checkbox" id="show-on-sites">
+                                Show on websites
+                            </label>
+                            <p id="pet-count" class="small-note"></p>
+                        </div>
                     </div>
                 </section>
             </div>
 
             <section id="interaction-box" class="panel-box">
                 <h2>Chat</h2>
-                <div id="chat-history" role="log" aria-live="polite" aria-label="Chat log">
-                    <article class="message ai-message">
-                        <p><strong>Buddy</strong><br>Hello! What can I help you with today?</p>
-                    </article>
-                </div>
+                <div id="chat-history" role="log" aria-live="polite" aria-label="Chat log"></div>
 
                 <form id="chat-form">
                     <label class="sr-only" for="user-input">Message Buddy</label>
-                    <input type="text" id="user-input" name="user-input" placeholder="Type a message..." required>
+                    <input type="text" id="user-input" name="user-input" placeholder="Type a message..." autocomplete="off" required>
                     <button type="submit">Send</button>
                 </form>
+                <p id="chat-note" class="small-note">Chats here and on other websites share one history once the extension is installed.</p>
             </section>
         </div>
     </main>
 
+    <dialog id="install-dialog" aria-labelledby="install-title">
+        <h2 id="install-title">Install the extension</h2>
+        <ol>
+            <li>Unzip <b>buddy-extension.zip</b>. You'll get a <b>buddy-extension</b> folder.</li>
+            <li><b>Chrome, Edge, Brave:</b> open <code>chrome://extensions</code>, turn on <b>Developer mode</b>, click <b>Load unpacked</b> and pick the folder.</li>
+            <li><b>Firefox:</b> open <code>about:debugging</code> → <b>This Firefox</b> → <b>Load Temporary Add-on</b> and pick <b>manifest.json</b> inside the folder. Then allow it to access all websites in the add-on's permissions.</li>
+            <li>Reload this page. The status above changes to <b>Extension: connected</b>.</li>
+        </ol>
+        <form method="dialog"><button class="pixel-button">Got it</button></form>
+    </dialog>
+
+    <script src="/extension/sprites.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>
