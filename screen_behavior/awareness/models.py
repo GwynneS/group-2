@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from screen_behavior.awareness.browser import BrowserActivity
+from screen_behavior.awareness.mouse import MouseActivity
+
 
 class ActivityType(StrEnum):
     CODING = "coding"
@@ -12,6 +15,16 @@ class ActivityType(StrEnum):
     VIDEO = "video"
     IDLE = "idle"
     OTHER = "other"
+
+
+class UserState(StrEnum):
+    """High-level, stable summary of what the user is doing."""
+    FOCUSED = "focused"          # working (coding/studying) with recent input
+    ACTIVE = "active"            # engaged but not working (browsing, gaming)
+    PASSIVE = "passive"          # watching/reading, little input
+    DISTRACTED = "distracted"    # app-hopping, or just drifted off work
+    IDLE = "idle"                # no input for a minute or more
+    AWAY = "away"                # long idle, or body tracking says not present
 
 
 class Shortcut(StrEnum):
@@ -147,11 +160,27 @@ class ScreenContext:
     screen_bounds: ScreenBounds | None = None
     window_edge: WindowEdgeAwareness | None = None
     keyboard: KeyboardActivity | None = None
+    mouse: MouseActivity | None = None
+    browser: BrowserActivity | None = None
+
+    # Fused state from activity + keyboard + mouse + idle (+ presence).
+    # None when built by hand (tests/demos); properties fall back to activity.
+    user_state: UserState | None = None
+    user_state_seconds: float = 0.0
+    user_present: bool | None = None
 
     @property
     def user_is_working(self) -> bool:
-        return self.activity in {ActivityType.CODING, ActivityType.STUDYING}
+        work = self.activity in {ActivityType.CODING, ActivityType.STUDYING}
+        if self.user_state is None:
+            return work
+        return work and self.user_state in {
+            UserState.FOCUSED,
+            UserState.PASSIVE,
+        }
 
     @property
     def user_is_idle(self) -> bool:
-        return self.activity == ActivityType.IDLE
+        if self.user_state is None:
+            return self.activity == ActivityType.IDLE
+        return self.user_state in {UserState.IDLE, UserState.AWAY}

@@ -538,6 +538,7 @@ body {
     }
 }
 
+<<<<<<< HEAD
 /* --- Live companion: camera feed, needs, mood --- */
 
 .video-stage {
@@ -646,4 +647,77 @@ body {
 
 #feed-buddy {
     align-self: auto;
+=======
+/* --- Companion brain panel (driven by GET /api/state) --------------------- */
+
+.brain-panel {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 2px dashed var(--line);
+}
+
+.mood-animation {
+    flex: none;
+    width: 128px;
+    display: grid;
+    justify-items: center;
+    gap: 6px;
+}
+
+.mood-animation #buddy-sprite {
+    width: 128px;
+}
+
+.brain-status {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    display: grid;
+    gap: 4px;
+    font-family: "VT323", "Courier New", monospace;
+    font-size: 18px;
+}
+
+.brain-status > div {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.brain-status dt {
+    flex: none;
+    width: 84px;
+    color: var(--muted);
+}
+
+.brain-status dd {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.brain-status meter {
+    width: 100%;
+    height: 12px;
+}
+
+#feed-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+@media (max-width: 760px) {
+    .brain-panel {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .mood-animation {
+        width: 100%;
+    }
+>>>>>>> 4c4be53baaa5a9f9b14e529463ac5dc625fcd7ff
 }
