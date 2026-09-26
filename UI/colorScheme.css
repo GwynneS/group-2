@@ -120,31 +120,29 @@ body {
     font-weight: 700;
 }
 
-.animation-orbit {
-    width: 68px;
-    aspect-ratio: 1;
+.pixel-character-wrap {
+    flex: 1;
+    min-height: 0;
     display: grid;
     place-items: center;
-    border: 2px dashed rgba(223, 200, 244, 0.8);
-    box-shadow: inset 0 0 0 4px rgba(223, 200, 244, 0.12);
-    animation: buddy-bob 700ms steps(2, end) infinite alternate;
 }
 
-.animation-orbit span {
-    width: 8px;
-    height: 8px;
-    transform: translate(-4px, -4px);
-    background: #ffe08a;
-    box-shadow:
-        -8px 0 #ffe08a, 8px 0 #ffe08a,
-        -16px 8px #ffe08a, -8px 8px #ffe08a, 8px 8px #ffe08a, 16px 8px #ffe08a,
-        -16px 16px #a879d6, -8px 16px #a879d6, 0 16px #a879d6, 8px 16px #a879d6, 16px 16px #a879d6,
-        -16px 24px #a879d6, -8px 24px #a879d6, 0 24px #a879d6, 8px 24px #a879d6, 16px 24px #a879d6,
-        -8px 32px #ffe08a, 8px 32px #ffe08a;
+#buddy-sprite {
+    display: block;
+    width: min(256px, 82%);
+    max-height: 100%;
+    image-rendering: pixelated;
+    filter: drop-shadow(6px 6px 0 #21162e);
 }
 
-@keyframes buddy-bob {
-    to { transform: translateY(-4px); }
+#animation-caption {
+    max-width: 100%;
+    min-height: 18px;
+    text-align: center;
+    font-family: "Press Start 2P", "Courier New", monospace;
+    font-size: 8px;
+    line-height: 1.8;
+    overflow-wrap: anywhere;
 }
 
 #interaction-box {
@@ -265,6 +263,10 @@ body {
 
     #interaction-box {
         min-height: 340px;
+    }
+
+    #buddy-sprite {
+        width: min(224px, 68vw);
     }
 }
 
