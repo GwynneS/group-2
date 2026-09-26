@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from screen_behavior.awareness.mouse import MouseActivity
+
 
 class ActivityType(StrEnum):
     CODING = "coding"
@@ -147,6 +149,7 @@ class ScreenContext:
     screen_bounds: ScreenBounds | None = None
     window_edge: WindowEdgeAwareness | None = None
     keyboard: KeyboardActivity | None = None
+    mouse: MouseActivity | None = None
 
     @property
     def user_is_working(self) -> bool:

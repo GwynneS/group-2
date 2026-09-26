@@ -9,18 +9,14 @@ from screen_behavior.awareness.microphone import (
     MicrophoneMonitor,
 )
 from screen_behavior.awareness.models import ScreenContext
+from screen_behavior.awareness.mouse import MouseActivity
 from screen_behavior.awareness.service import AwarenessService
 from screen_behavior.pet.behavior import (
     BehaviorDecision,
     BehaviorEngine,
     ExternalSignals,
 )
-from screen_behavior.pet.feeding import (
-    FeedingStatus,
-    FeedingSystem,
-    FeedResult,
-    FoodType,
-)
+from screen_behavior.pet.feeding import FeedingSystem, FeedResult
 from screen_behavior.pet.interactions import (
     InteractionEffect,
     apply_interaction_effect,
@@ -34,7 +30,6 @@ class BrainUpdate:
     screen: ScreenContext
     pet: PetState
     decision: BehaviorDecision
-    feeding: FeedingStatus
     microphone: MicrophoneActivity
 
 
@@ -89,11 +84,6 @@ class CompanionBrain:
             self.pet,
             dt,
         )
-        self.feeding.tick(
-            self.pet,
-            screen,
-            dt,
-        )
 
         decision = self.behavior.decide(
             self.pet,
@@ -108,7 +98,6 @@ class CompanionBrain:
             screen=screen,
             pet=self.pet,
             decision=decision,
-            feeding=self.feeding.status(self.pet),
             microphone=microphone,
         )
 
@@ -128,20 +117,30 @@ class CompanionBrain:
         )
         self.needs.update_mood(self.pet)
 
-    def feed(
-        self,
-        food: FoodType,
-    ) -> FeedResult:
+    def feed(self) -> FeedResult:
         """
-        Called by whichever group owns the feeding UI. Returns whether buddy
-        ate, so the UI/voice can react to a refusal.
+        Give buddy a fish. Called by whichever group owns the feeding UI.
+        Returns whether buddy ate, so the UI/voice can react to a refusal.
         """
-        result = self.feeding.feed(
-            self.pet,
-            food,
-        )
+        result = self.feeding.feed(self.pet)
         self.needs.update_mood(self.pet)
         return result
+
+    def mouse(self) -> MouseActivity:
+        """
+        Latest cursor motion, refreshed ~30x/second in the background.
+        Cheap to call every animation frame, unlike update().
+        """
+        monitor = getattr(self.awareness, "mouse_monitor", None)
+        if monitor is None:
+            return MouseActivity(monitoring_available=False)
+        return monitor.snapshot()
+
+    def add_mouse_listener(self, listener) -> None:
+        """Call listener(x, y) every time the cursor moves."""
+        monitor = getattr(self.awareness, "mouse_monitor", None)
+        if monitor is not None:
+            monitor.add_listener(listener)
 
     def close(self) -> None:
         close = getattr(self.awareness, "close", None)

@@ -10,6 +10,7 @@ from screen_behavior.awareness.keyboard import (
     KeyboardActivityTracker,
 )
 from screen_behavior.awareness.models import ScreenContext
+from screen_behavior.awareness.mouse import ContinuousMouseMonitor
 
 
 class AwarenessService:
@@ -25,7 +26,14 @@ class AwarenessService:
         keyboard_tracker=None,
         keyboard_monitor=None,
         start_keyboard_monitor: bool = True,
+        mouse_monitor=None,
+        start_mouse_monitor: bool | None = None,
     ) -> None:
+        # By default only start the mouse thread for a real OS backend, so
+        # tests with fake backends don't spawn polling threads.
+        if start_mouse_monitor is None:
+            start_mouse_monitor = backend is None
+
         self.backend = backend or self._build_backend()
         self.classifier = classifier or ActivityClassifier()
         self.activity_tracker = (
@@ -42,6 +50,12 @@ class AwarenessService:
 
         if start_keyboard_monitor:
             self.keyboard_monitor.start()
+
+        self.mouse_monitor = mouse_monitor or ContinuousMouseMonitor(
+            self._cursor_reader(self.backend),
+        )
+        if start_mouse_monitor:
+            self.mouse_monitor.start()
 
     def snapshot(self) -> ScreenContext:
         raw = self.backend.snapshot()
@@ -79,10 +93,24 @@ class AwarenessService:
             screen_bounds=raw.screen_bounds,
             window_edge=edge,
             keyboard=keyboard,
+            mouse=self.mouse_monitor.snapshot(),
         )
 
     def close(self) -> None:
         self.keyboard_monitor.stop()
+        self.mouse_monitor.stop()
+
+    @staticmethod
+    def _cursor_reader(backend):
+        reader = getattr(backend, "_cursor_position", None)
+        if callable(reader):
+            return reader
+
+        def from_snapshot():
+            raw = backend.snapshot()
+            return raw.cursor_x, raw.cursor_y
+
+        return from_snapshot
 
     @staticmethod
     def _build_backend():

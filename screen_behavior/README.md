@@ -210,32 +210,47 @@ py -m screen_behavior.demo_v05 --scenarios
 
 ## Feeding system
 
-This subsystem owns the food *rules*; whoever owns the feeding UI decides when
-the user feeds buddy and calls:
+Fish is buddy's only food. This subsystem owns what fish does; whoever owns
+the feeding UI decides when the user feeds buddy and calls:
 
 ```python
-from screen_behavior.pet.feeding import FoodType
-
-result = brain.feed(FoodType.DRY)   # or FoodType.WET
-result.accepted  # False if buddy is full, or no wet food has been earned
+result = brain.feed()
+result.accepted  # False if buddy is full
 result.reason
 ```
 
-- **Dry food:** fills hunger some, a little energy, no excitement.
-- **Wet food:** fills more hunger, more energy, big affection boost, and makes
-  buddy hyper (excited mood, prefers dance/wave/walk) for 45 seconds.
-- Wet food is earned: 1 per 25 minutes of coding/studying, max 3 stored.
-- Buddy refuses all food when hunger is 10 or below.
+- Fish lowers hunger by 35, adds 10 energy, 6 affection, 5 attention.
+- Buddy refuses fish when hunger is 10 or below.
+- A hungry buddy gets tired faster (see `NeedsConfig`).
 
-`update.feeding` exposes `wet_food_available`, progress toward the next wet
-food, and `hyper_seconds_remaining`. Numbers live in `FeedingConfig` in
-`pet/feeding.py`.
-
-Try it:
+Numbers live in `FeedingConfig` in `pet/feeding.py`.
 
 ```bash
 python3 -m screen_behavior.demo_feeding              # interactive
 python3 -m screen_behavior.demo_feeding --scenarios  # scripted
+```
+
+
+## Continuous mouse tracking
+
+A background thread reads the cursor ~30 times/second (macOS + Windows, no
+extra permission needed). Only cursor position is used: no clicks, nothing
+about what's under the cursor.
+
+```python
+m = brain.mouse()            # cheap; call every animation frame
+m.x, m.y, m.speed, m.moving, m.seconds_since_move, m.distance_last_5_seconds
+
+look = m.look_from(pet_eye_x, pet_eye_y)   # for follow-mouse-with-eyes
+look.dx, look.dy, look.angle_degrees, look.distance_px
+
+brain.add_mouse_listener(lambda x, y: ...)  # called on every cursor move
+```
+
+`update.screen.mouse` carries the same data on each `brain.update()`.
+
+```bash
+python3 -m screen_behavior.demo_mouse
 ```
 
 
