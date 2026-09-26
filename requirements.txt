@@ -1,0 +1,2 @@
+psutil>=6.0,<7
+mediapipe>=0.10
