@@ -1,2 +1,2 @@
 psutil>=6.0,<7
-mediapipe>=0.10
+mediapipe>=0.10.14,<1.0  # 1.0.x crashes on macOS ("Service is unavailable")

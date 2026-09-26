@@ -4,5 +4,8 @@ __pycache__/
 .venv/
 venv/
 
+# MediaPipe models (tracking.py downloads them automatically)
+*.task
+
 # macOS
 .DS_Store
