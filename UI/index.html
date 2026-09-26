@@ -4,35 +4,75 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Buddy Interface</title>
+    <!-- Your standard variables and palette -->
+    <link rel="stylesheet" href="colorScheme.css">
+    <!-- Your layout structure sheet -->
+    <link rel="stylesheet" href="layout.css">
 </head>
 <body>
-    <link rel="stylesheet" href="colorScheme.css">
 
     <main>
-        <!-- Character and Status Area -->
-        <section id="idle-box">
-            <figure>
-                <!-- Native HTML happiness bar -->
-                <figcaption>
-                    <label for="happiness-bar">Happiness Level:</label>
-                    <meter id="happiness-bar" min="0" max="100" low="30" high="75" optimum="100" value="80">
-                        80%
-                    </meter>
-                </figcaption>
-            </figure>
-        </section>
+        <!-- Mac Title Bar Component -->
+    <div class="window-header">
+        <div class="window-controls">
+            <button class="control-btn close" aria-label="Close"></button>
+            <button class="control-btn minimize" aria-label="Minimize"></button>
+            <button class="control-btn maximize" aria-label="Maximize"></button>
+        </div>
+        <div class="window-title">AI Buddy Interface</div>
+        <div style="width: 52px;"></div> <!-- Balancing spacer -->
+    </div>
 
-        <!-- Interaction Area -->
-        <section id="interaction-box">
+    <!-- Interior Content Layout Window -->
+    <div class="window-content">
+        <div class="left-column">
+            <!-- Video, Graphics, and Meter panels go here -->
+        </div>
+        <section id="interaction-box" class="panel-box">
+            <!-- Chat panels go here -->
+        </section>
+    </div>
+        <!-- LEFT SIDE DATA PANEL -->
+        <div class="left-column">
+            
+            <!-- Top Left: Video Stream Box -->
+            <section id="video-box" class="panel-box">
+                <h2>Live Video Feed</h2>
+                <div class="media-placeholder">
+                    <p>[ Camera Feed Ready ]</p>
+                </div>
+            </section>
+
+            <!-- Bottom Left: Analytics / Graphics Box -->
+            <section id="graphics-box" class="panel-box">
+                <h2>Graphics & Expression</h2>
+                <div class="media-placeholder">
+                    <p>[ Live Matrix Data Graphic ]</p>
+                </div>
+            </section>
+
+            <!-- Original Character Status Area -->
+            <section id="idle-box" class="panel-box">
+                <figure class="meter-wrapper">
+                    <figcaption>
+                        <label for="happiness-bar"><strong>Buddy Happiness Level:</strong></label>
+                        <meter id="happiness-bar" min="0" max="100" low="30" high="75" optimum="100" value="80">80%</meter>
+                    </figcaption>
+                </figure>
+            </section>
+            
+        </div>
+
+        <!-- RIGHT SIDE INTERACTION (CHAT LOG) -->
+        <section id="interaction-box" class="panel-box">
+            <h2>Conversation Log</h2>
             <div id="chat-history" role="log" aria-live="polite">
-                <!-- Example of a starting message -->
                 <article class="message ai-message">
                     <p><strong>Buddy:</strong> Hello! What can I help you with today?</p>
                 </article>
             </div>
-
+            
             <form id="chat-form">
-                <label for="user-input">Message:</label>
                 <input type="text" id="user-input" name="user-input" placeholder="Say something nice..." required>
                 <button type="submit">Send</button>
             </form>

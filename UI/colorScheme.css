@@ -1,24 +1,43 @@
-/* Main Body Styles */
+/* Custom variables for theme and palette consistency */
+:root {
+    --bg-main: #CDB4DB;
+    --bg-glass: rgba(255, 255, 255, 0.4);
+    --bg-glass-darker: rgba(255, 255, 255, 0.2);
+    --bg-header: rgba(30, 41, 59, 0.9);
+    --bg-chat: rgba(255, 255, 255, 0.5);
+    --border-glass: rgba(255, 255, 255, 0.4);
+    --text-primary: #0f172a;
+    --text-secondary: #334155;
+    --text-muted: #666666;
+    --accent-color: #5865f2;
+    --accent-hover: #4752c4;
+}
+
+/* Global Reset & Base Elements */
+* {
+    box-sizing: border-box;
+}
+
 body {
     margin: 0;
     padding: 0;
     height: 100vh;
-    background-color: #CDB4DB; /* Added the missing # for the hex color */
+    background-color: var(--bg-main);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     display: flex;
     justify-content: center;
     align-items: center;
 }
 
-/* The Window Container */
+/* The Window Container Frame */
 .window-container {
-    width: 500px;
-    max-width: 90%;
-    height: 320px;
-    background: rgba(255, 255, 255, 0.4); /* Neutral semi-transparent base */
-    backdrop-filter: blur(12px); /* Frosted glass background blur */
+    width: 1200px;
+    max-width: 95%;
+    height: 80vh;
+    background: var(--bg-glass);
+    backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.4); /* Subtle glass edge */
+    border: 1px solid var(--border-glass);
     border-radius: 8px;
     overflow: hidden; 
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15), 
@@ -27,9 +46,9 @@ body {
     flex-direction: column;
 }
 
-/* The Title Bar */
+/* The Mac-Style Title Bar */
 .window-header {
-    background: rgba(30, 41, 59, 0.9); /* Slightly transparent dark slate */
+    background: var(--bg-header);
     color: #ffffff;
     padding: 10px 16px;
     display: flex;
@@ -44,7 +63,7 @@ body {
     letter-spacing: 0.5px;
 }
 
-/* Window Controls (The Dots/Buttons) */
+/* Window Control Dots */
 .window-controls {
     display: flex;
     gap: 8px;
@@ -64,21 +83,129 @@ body {
     filter: brightness(0.8);
 }
 
-/* Mac-style Window Colors */
 .control-btn.close { background-color: #ef4444; }     
 .control-btn.minimize { background-color: #f59e0b; }  
 .control-btn.maximize { background-color: #10b981; }  
 
-/* The Main Window Body */
+/* The Interior Main Window Grid Layout */
 .window-content {
-    padding: 20px;
     flex: 1; 
-    overflow-y: auto; 
-    color: #334155;
+    overflow: hidden; 
+    color: var(--text-secondary);
     line-height: 1.6;
+    display: grid;
+    grid-template-columns: 450px 1fr;
+    gap: 20px;
+    padding: 20px;
 }
 
-.window-content h3 {
+/* Left Dashboard Column */
+.left-column {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    height: 100%;
+}
+
+/* Sub-panel Frosted Architecture */
+.panel-box {
+    background: var(--bg-glass-darker);
+    border: 1px solid var(--border-glass);
+    border-radius: 8px;
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+}
+
+.panel-box h2, .panel-box h3 {
     margin-top: 0;
-    color: #0f172a;
+    color: var(--text-primary);
+    font-size: 16px;
+}
+
+/* Left Side Panel Proportions */
+#video-box {
+    flex: 1.2;
+    min-height: 200px;
+}
+
+#graphics-box {
+    flex: 1;
+    min-height: 160px;
+}
+
+#idle-box {
+    flex: 0; 
+}
+
+/* Graphics/Media Inner Placeholders */
+.media-placeholder {
+    background: rgba(0, 0, 0, 0.05); 
+    flex-grow: 1; 
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+    border-radius: 6px;
+}
+
+.media-placeholder p {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin: 0;
+}
+
+/* Happiness Meter Alignment */
+.meter-wrapper {
+    margin: 0;
+}
+
+meter {
+    width: 100%;
+    height: 20px;
+    margin-top: 5px;
+}
+
+/* Right Side Chat Feed */
+#interaction-box {
+    height: 100%;
+}
+
+#chat-history {
+    flex-grow: 1;
+    overflow-y: auto;
+    margin-bottom: 15px;
+    padding: 10px;
+    background: var(--bg-chat);
+    border-radius: 6px;
+    border: 1px solid var(--border-glass);
+}
+
+#chat-form {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+#user-input {
+    flex-grow: 1;
+    padding: 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border-glass);
+    background: var(--bg-chat);
+    color: var(--text-primary);
+}
+
+/* Form UI Buttons */
+button {
+    padding: 10px 20px;
+    background-color: var(--accent-color);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+button:hover {
+    background-color: var(--accent-hover);
 }
