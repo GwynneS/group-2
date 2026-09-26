@@ -17,6 +17,7 @@ from screen_behavior.pet.behavior import (
     ExternalSignals,
 )
 from screen_behavior.pet.feeding import FeedingSystem, FeedResult
+from screen_behavior.pet.memory import MemorySnapshot
 from screen_behavior.pet.interactions import (
     InteractionEffect,
     apply_interaction_effect,
@@ -31,6 +32,7 @@ class BrainUpdate:
     pet: PetState
     decision: BehaviorDecision
     microphone: MicrophoneActivity
+    memory: MemorySnapshot
 
 
 class CompanionBrain:
@@ -99,6 +101,7 @@ class CompanionBrain:
             pet=self.pet,
             decision=decision,
             microphone=microphone,
+            memory=self.behavior.memory_snapshot(),
         )
 
     def apply_interaction(
@@ -115,6 +118,7 @@ class CompanionBrain:
             self.pet,
             effect,
         )
+        self.behavior.record_interaction()
         self.needs.update_mood(self.pet)
 
     def feed(self) -> FeedResult:
@@ -123,6 +127,7 @@ class CompanionBrain:
         Returns whether buddy ate, so the UI/voice can react to a refusal.
         """
         result = self.feeding.feed(self.pet)
+        self.behavior.record_interaction()
         self.needs.update_mood(self.pet)
         return result
 

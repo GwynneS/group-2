@@ -13,7 +13,9 @@ from screen_behavior.pet.config import (
     BEHAVIOR_SPECS,
     BehaviorSpec,
 )
+from screen_behavior.pet.distraction import DistractionBudget
 from screen_behavior.pet.enums import BaseMood, Behavior, SpecialMood
+from screen_behavior.pet.memory import BehaviorMemory, MemorySnapshot
 from screen_behavior.pet.models import PetState
 
 
@@ -36,6 +38,7 @@ class BehaviorDecision:
     distracting: bool
     commitment_remaining_seconds: float
     cooldown_remaining_seconds: float
+    distraction_budget: float = 100.0
 
 
 class BehaviorEngine:
@@ -52,10 +55,15 @@ class BehaviorEngine:
         rng: random.Random | None = None,
         clock: Callable[[], float] = monotonic,
         specs: dict[Behavior, BehaviorSpec] | None = None,
+        budget: DistractionBudget | None = None,
+        memory: BehaviorMemory | None = None,
     ) -> None:
         self.rng = rng or random.Random()
         self.clock = clock
         self.specs = specs or BEHAVIOR_SPECS
+        self.budget = budget or DistractionBudget()
+        self.memory = memory or BehaviorMemory()
+        self._last_decide: float | None = None
 
         self._current_behavior: Behavior | None = None
         self._commitment_until: float = 0.0
@@ -69,6 +77,10 @@ class BehaviorEngine:
     ) -> BehaviorDecision:
         signals = signals or ExternalSignals()
         now = self.clock()
+
+        if self._last_decide is not None:
+            self.budget.tick(screen, now - self._last_decide)
+        self._last_decide = now
 
         # Play-dead wake-up is intentionally a state transition, not a content event.
         if pet.play_dead_active and signals.loud_voice_detected:
@@ -93,12 +105,22 @@ class BehaviorEngine:
         urgent = self._urgent_behavior(pet)
 
         if urgent is not None:
+            reason = self._urgent_reason(urgent)
+
+            # Asked for attention and got ignored: sulk instead of nagging.
+            if (
+                urgent == Behavior.ASK_FOR_ATTENTION
+                and self.memory.recently_ignored(now)
+            ):
+                urgent = Behavior.SIT_DOWN
+                reason = "was ignored; sulking instead of asking again"
+
             # Urgent needs may interrupt a less important commitment.
             if self._current_behavior != urgent:
                 return self._start(
                     pet,
                     urgent,
-                    self._urgent_reason(urgent),
+                    reason,
                     now,
                     force=True,
                 )
@@ -177,7 +199,7 @@ class BehaviorEngine:
 
             if available:
                 return (
-                    self.rng.choice(available),
+                    self._pick(available),
                     "user appears to be working; prefer low-distraction behavior",
                 )
 
@@ -224,9 +246,21 @@ class BehaviorEngine:
             return Behavior.IDLE, "no other autonomous behavior is available"
 
         return (
-            self.rng.choice(available),
+            self._pick(available),
             "normal autonomous behavior selection",
         )
+
+    def _pick(self, options: list[Behavior]) -> Behavior:
+        # Behavioral memory: avoid repeating recent behaviors when possible.
+        fresh = [b for b in options if not self.memory.is_repetitive(b)]
+        return self.rng.choice(fresh or options)
+
+    def record_interaction(self) -> None:
+        """The user interacted with buddy (petting, feeding, etc.)."""
+        self.memory.record_interaction(self.clock())
+
+    def memory_snapshot(self) -> MemorySnapshot:
+        return self.memory.snapshot(self.clock())
 
     def _available(
         self,
@@ -237,6 +271,9 @@ class BehaviorEngine:
         spec = self.specs[behavior]
 
         if pet.energy < spec.min_energy:
+            return False
+
+        if not self.budget.can_afford(behavior):
             return False
 
         last_started = self._last_started.get(behavior)
@@ -267,6 +304,8 @@ class BehaviorEngine:
             self._current_behavior = behavior
             self._commitment_until = now + spec.commitment_seconds
             self._last_started[behavior] = now
+            self.budget.spend(behavior)
+            self.memory.record_behavior(behavior, now)
 
             if behavior == Behavior.PLAY_DEAD:
                 pet.play_dead_active = True
@@ -322,4 +361,5 @@ class BehaviorEngine:
             distracting=spec.distracting,
             commitment_remaining_seconds=commitment_remaining,
             cooldown_remaining_seconds=cooldown_remaining,
+            distraction_budget=self.budget.value,
         )

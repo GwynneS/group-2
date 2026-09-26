@@ -208,6 +208,36 @@ py -m screen_behavior.demo_v05 --scenarios
 ```
 
 
+## Distraction budget
+
+Buddy has a `distraction_budget` (0–100). Distracting behaviors spend it:
+dance 35, play dead 30, walk around corner 25, ask for attention 20,
+send kiss 10, wave 8. Quiet behaviors (watch screen, study with user, sit,
+look around, follow mouse, stretch, sleep, idle) are free.
+
+The budget refills slowly while the user codes/studies (~30 min to full),
+moderately otherwise, and fast when the user is idle. A behavior buddy can't
+afford is skipped. Urgent needs (e.g. critically lonely) still go through.
+
+`update.decision.distraction_budget` exposes the current value. Numbers live
+in `DistractionConfig` in `pet/distraction.py`.
+
+
+## Behavioral memory
+
+Short-term state, not AI memory. `update.memory` contains:
+
+- `last_behavior`, `last_5_behaviors`
+- `time_since_attention_request`
+- `recently_ignored`: buddy asked for attention and nobody interacted within
+  30s. For the next 5 minutes buddy sulks (sits down) instead of nagging again.
+- `recently_interacted_with`: fed or interacted with in the last 2 minutes.
+
+Buddy avoids repeating its last behavior, or anything it did twice in its
+last 5, when another option is available. `brain.feed()` and
+`brain.apply_interaction()` count as interacting.
+
+
 ## Feeding system
 
 Fish is buddy's only food. This subsystem owns what fish does; whoever owns
