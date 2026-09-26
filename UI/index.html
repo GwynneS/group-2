@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Companion - Neural Link</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=VT323&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['VT323', 'monospace'],
+                    },
+                    colors: {
+                        brand: {
+                            dark: '#0f172a',
+                            light: '#e2e8f0',
+                            accent: '#6366f1'
+                        },
+                        glitch: {
+                            green: '#0f0',
+                            red: '#f00'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* Custom Scrollbar for sleekness */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background-color: rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+        }
+
+        /* Ambient animated background for the glass UI */
+        .ambient-bg {
+            background: linear-gradient(-45deg, #0f172a, #1e1b4b, #312e81, #0f172a);
+            background-size: 400% 400%;
+            animation: gradientBG 15s ease infinite;
+        }
+        @keyframes gradientBG {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        /* --- GLITCH / CRT EFFECTS --- */
+        .glitch-mode {
+            background: #000 !important;
+            color: #0f0 !important;
+            font-family: 'VT323', monospace !important;
+        }
+
+        .glitch-mode * {
+            font-family: 'VT323', monospace !important;
+            border-color: #f00 !important;
+            backdrop-filter: none !important;
+            background-color: #000 !important;
+            color: #0f0 !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+        }
+
+        .glitch-mode .glass-panel {
+            border: 4px solid #f00 !important;
+            animation: shake 0.4s infinite;
+        }
+
+        .crt-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.15),
+                rgba(0, 0, 0, 0.15) 1px,
+                transparent 1px,
+                transparent 2px
+            );
+            pointer-events: none;
+            z-index: 9999;
+        }
+
+        .glitch-mode .crt-overlay {
+            display: block;
+        }
+
+        /* Screen distortion/shake */
+        @keyframes shake {
+            0% { transform: translate(1px, 1px) rotate(0deg); }
+            10% { transform: translate(-2px, -2px) rotate(-1deg); filter: invert(0); }
+            20% { transform: translate(-3px, 0px) rotate(1deg); filter: invert(0.2); }
+            30% { transform: translate(3px, 2px) rotate(0deg); }
+            40% { transform: translate(1px, -1px) rotate(1deg); filter: invert(0.8); }
+            50% { transform: translate(-1px, 2px) rotate(-1deg); filter: hue-rotate(90deg); }
+            60% { transform: translate(-3px, 1px) rotate(0deg); filter: invert(0); }
+            70% { transform: translate(3px, 1px) rotate(-1deg); }
+            80% { transform: translate(-1px, -1px) rotate(1deg); filter: invert(0.5); }
+            90% { transform: translate(1px, 2px) rotate(0deg); filter: invert(0); }
+            100% { transform: translate(1px, -2px) rotate(-1deg); }
+        }
+        
+        .chat-message {
+            transition: all 0.3s ease;
+        }
+        
+        /* Loading dots animation */
+        .typing-dot {
+            animation: typing 1.4s infinite ease-in-out both;
+        }
+        .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+        .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes typing {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+    </style>
+</head>
+
+<body id="app-body" class="ambient-bg text-slate-100 min-h-screen flex items-center justify-center p-4 sm:p-8 transition-colors duration-0">
+    
+    <!-- CRT Scanline Overlay (Hidden by default) -->
+    <div class="crt-overlay"></div>
+
+    <!-- Main Container (Glassmorphism) -->
+    <main id="main-container" class="glass-panel relative w-full max-w-5xl h-[85vh] max-h-[800px] flex flex-col md:flex-row bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl shadow-2xl overflow-hidden transition-all duration-0">
+        
+        <!-- Left Side: Character / Visuals -->
+        <section class="w-full md:w-2/5 flex flex-col items-center justify-center p-6 border-b md:border-b-0 md:border-r border-white/10 bg-black/20">
+            <div class="relative w-full max-w-[280px] aspect-square md:aspect-[3/4] rounded-2xl overflow-hidden shadow-lg border border-white/10 group">
+                <!-- Placeholder for Pixel Art Femboy Buddy -->
+                <img id="character-sprite" 
+                     src="https://placehold.co/400x600/1e293b/a5b4fc?text=Pixel+Buddy\n(Idle)" 
+                     alt="Pixel Art Buddy" 
+                     class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105">
+                
+                <!-- Status indicator -->
+                <div class="absolute top-4 right-4 flex items-center space-x-2 bg-black/50 px-3 py-1 rounded-full backdrop-blur-md">
+                    <span id="status-indicator" class="w-2.5 h-2.5 bg-green-400 rounded-full animate-pulse"></span>
+                    <span id="status-text" class="text-xs font-medium tracking-wide">ONLINE</span>
+                </div>
+            </div>
+            
+            <div class="mt-8 text-center hidden md:block">
+                <h2 id="buddy-name" class="text-2xl font-semibold tracking-tight text-white">System Buddy v1.2</h2>
+                <p class="text-sm text-slate-400 mt-1">Ready to assist.</p>
+            </div>
+        </section>
+
+        <!-- Right Side: Chat Interface -->
+        <section class="w-full md:w-3/5 flex flex-col h-full bg-slate-900/40">
+            
+            <!-- Chat Header -->
+            <header class="p-4 sm:p-6 border-b border-white/10 flex justify-between items-center bg-black/10">
+                <h1 class="text-lg font-medium text-white flex items-center gap-2">
+                    <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
+                    Terminal Session
+                </h1>
+                <button class="text-slate-400 hover:text-white transition-colors" title="Settings">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                </button>
+            </header>
+
+            <!-- Chat History Area -->
+            <div id="chat-history" class="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 scroll-smooth">
+                <!-- Initial Welcome Message -->
+                <div class="flex flex-col items-start chat-message">
+                    <span class="text-xs text-slate-400 mb-1 ml-1">Buddy</span>
+                    <div class="bg-indigo-600/80 backdrop-blur-sm text-white px-4 py-3 rounded-2xl rounded-tl-none max-w-[85%] shadow-md border border-indigo-500/30">
+                        Hello! I'm online and ready to help. What's on your mind today?
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <footer class="p-4 sm:p-6 bg-black/20 border-t border-white/10">
+                <form id="chat-form" class="relative flex items-center">
+                    <input 
+                        type="text" 
+                        id="user-input" 
+                        class="w-full bg-white/5 border border-white/10 text-white rounded-xl pl-4 pr-12 py-3 sm:py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:bg-white/10 transition-all placeholder-slate-400"
+                        placeholder="Type your message... (Try typing 'glitch' or 'error')"
+                        autocomplete="off"
+                    >
+                    <button 
+                        type="submit" 
+                        id="send-btn"
+                        class="absolute right-2 p-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        <svg class="w-5 h-5 transform rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+                    </button>
+                </form>
+            </footer>
+
+        </section>
+    </main>
+
+    <script>
+        // --- State Variables ---
+        let chatHistoryForAPI = [];
+        let isGlitching = false;
+        const systemInstruction = "You are a helpful, minimalist AI desktop buddy. Keep responses relatively concise. Act slightly playful but mostly professional.";
+
+        // --- DOM Elements ---
+        const appBody = document.getElementById('app-body');
+        const mainContainer = document.getElementById('main-container');
+        const chatHistoryDiv = document.getElementById('chat-history');
+        const chatForm = document.getElementById('chat-form');
+        const userInput = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
+        const statusIndicator = document.getElementById('status-indicator');
+        const statusText = document.getElementById('status-text');
+        const characterSprite = document.getElementById('character-sprite');
+        const buddyName = document.getElementById('buddy-name');
+
+        // Initial setup of API history with system instruction conceptually
+        // Note: The API payload structure uses systemInstruction separately, but we keep track of user/model turns here.
+        
+        // --- Event Listeners ---
+        chatForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const text = userInput.value.trim();
+            if (!text || isGlitching) return;
+
+            // Clear input and disable form
+            userInput.value = '';
+            setLoadingState(true);
+
+            // Add user message to UI
+            appendMessage(text, 'user');
+
+            // CHECK FOR SHOCK VALUE TRIGGER
+            const lowerText = text.toLowerCase();
+            if (lowerText.includes('glitch') || lowerText.includes('error')) {
+                triggerGlitchEvent();
+                // We will still process the message after the glitch finishes
+                await new Promise(resolve => setTimeout(resolve, 3000));
+            }
+
+            // Call API
+            await handleGeminiRequest(text);
+        });
+
+        // --- UI Update Functions ---
+        function appendMessage(text, sender) {
+            const wrapper = document.createElement('div');
+            wrapper.className = `flex flex-col chat-message animate-[fadeIn_0.3s_ease-out] ${sender === 'user' ? 'items-end' : 'items-start'}`;
+            
+            const label = document.createElement('span');
+            label.className = `text-xs mb-1 ${sender === 'user' ? 'text-indigo-300 mr-1' : 'text-slate-400 ml-1'}`;
+            label.textContent = sender === 'user' ? 'You' : 'Buddy';
+
+            const bubble = document.createElement('div');
+            if (sender === 'user') {
+                bubble.className = 'bg-white/10 backdrop-blur-sm text-white px-4 py-3 rounded-2xl rounded-tr-none max-w-[85%] border border-white/5';
+            } else {
+                bubble.className = 'bg-indigo-600/80 backdrop-blur-sm text-white px-4 py-3 rounded-2xl rounded-tl-none max-w-[85%] shadow-md border border-indigo-500/30';
+                
+                // Parse simple markdown if needed, but for safe HTML insertion we use textContent
+                // If we want basic formatting, we can do slight replacements, but textContent is safest.
+            }
+            bubble.textContent = text;
+
+            wrapper.appendChild(label);
+            wrapper.appendChild(bubble);
+            chatHistoryDiv.appendChild(wrapper);
+            
+            scrollToBottom();
+        }
+
+        function showTypingIndicator() {
+            const wrapper = document.createElement('div');
+            wrapper.id = 'typing-indicator';
+            wrapper.className = 'flex flex-col items-start chat-message';
+            
+            const label = document.createElement('span');
+            label.className = 'text-xs text-slate-400 mb-1 ml-1';
+            label.textContent = 'Buddy';
+
+            const bubble = document.createElement('div');
+            bubble.className = 'bg-indigo-600/50 backdrop-blur-sm text-white px-4 py-4 rounded-2xl rounded-tl-none border border-indigo-500/30 flex items-center space-x-1';
+            
+            for(let i=0; i<3; i++) {
+                const dot = document.createElement('div');
+                dot.className = 'w-2 h-2 bg-white rounded-full typing-dot';
+                bubble.appendChild(dot);
+            }
+
+            wrapper.appendChild(label);
+            wrapper.appendChild(bubble);
+            chatHistoryDiv.appendChild(wrapper);
+            scrollToBottom();
+        }
+
+        function removeTypingIndicator() {
+            const indicator = document.getElementById('typing-indicator');
+            if (indicator) indicator.remove();
+        }
+
+        function scrollToBottom() {
+            chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
+        }
+
+        function setLoadingState(isLoading) {
+            userInput.disabled = isLoading;
+            sendBtn.disabled = isLoading;
+            if (isLoading) {
+                statusIndicator.classList.replace('bg-green-400', 'bg-yellow-400');
+                statusText.textContent = 'THINKING';
+                characterSprite.src = "https://placehold.co/400x600/1e293b/a5b4fc?text=Pixel+Buddy\n(Thinking...)";
+                showTypingIndicator();
+            } else {
+                statusIndicator.classList.replace('bg-yellow-400', 'bg-green-400');
+                statusText.textContent = 'ONLINE';
+                characterSprite.src = "https://placehold.co/400x600/1e293b/a5b4fc?text=Pixel+Buddy\n(Idle)";
+                removeTypingIndicator();
+                userInput.focus();
+            }
+        }
+
+        function triggerGlitchEvent() {
+            isGlitching = true;
+            console.log("CRITICAL ERROR TRIGGERED");
+            
+            // Swap state and UI elements to harsh CRT
+            appBody.classList.add('glitch-mode');
+            
+            // Change Character Sprite
+            characterSprite.src = "https://placehold.co/400x600/000000/00ff00?text=FATAL\nERROR\nSYS_HALT";
+            buddyName.textContent = "ERR_UNKNOWN_ENTITY";
+            statusIndicator.classList.replace('bg-yellow-400', 'bg-red-600');
+            statusText.textContent = "SYSTEM COMPROMISED";
+            statusText.classList.add('text-red-600');
+
+            // Play discordant sound (Conceptual - Web Audio API synthesize a harsh tone)
+            playGlitchSound();
+
+            // Revert after 3 seconds
+            setTimeout(() => {
+                appBody.classList.remove('glitch-mode');
+                buddyName.textContent = "System Buddy v1.2";
+                statusText.classList.remove('text-red-600');
+                isGlitching = false;
+                // Note: Sprite and status will be reset by setLoadingState(false) when API returns
+            }, 3000);
+        }
+
+        // Simple AudioContext harsh tone generator for the shock value without external files
+        function playGlitchSound() {
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                
+                // Oscillator 1 (Harsh square wave)
+                const osc1 = audioCtx.createOscillator();
+                osc1.type = 'square';
+                osc1.frequency.setValueAtTime(150, audioCtx.currentTime);
+                osc1.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.5);
+
+                // Oscillator 2 (High pitch dissonance)
+                const osc2 = audioCtx.createOscillator();
+                osc2.type = 'sawtooth';
+                osc2.frequency.setValueAtTime(800, audioCtx.currentTime);
+                osc2.frequency.linearRampToValueAtTime(1200, audioCtx.currentTime + 0.2);
+                
+                // Gain node for harsh volume drop
+                const gainNode = audioCtx.createGain();
+                gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+                
+                osc1.connect(gainNode);
+                osc2.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                
+                osc1.start();
+                osc2.start();
+                osc1.stop(audioCtx.currentTime + 0.5);
+                osc2.stop(audioCtx.currentTime + 0.5);
+            } catch (e) {
+                console.warn("AudioContext failed to play glitch sound", e);
+            }
+        }
+
+        async function handleGeminiRequest(userText) {
+            // Update History array for API
+            chatHistoryForAPI.push({
+                role: "user",
+                parts: [{ text: userText }]
+            });
+
+            const apiKey = ""; // API Key injected automatically by environment
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+            const payload = {
+                contents: chatHistoryForAPI,
+                systemInstruction: {
+                    parts: [{ text: systemInstruction }]
+                }
+            };
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                const candidate = result.candidates?.[0];
+
+                if (candidate && candidate.content?.parts?.[0]?.text) {
+                    const botResponseText = candidate.content.parts[0].text;
+                    
+                    // Update History array with model response
+                    chatHistoryForAPI.push({
+                        role: "model",
+                        parts: [{ text: botResponseText }]
+                    });
+
+                    // Update UI
+                    setLoadingState(false);
+                    appendMessage(botResponseText, 'model');
+                } else {
+                    throw new Error("Unexpected API response structure");
+                }
+
+            } catch (error) {
+                console.error("Gemini API Error:", error);
+                setLoadingState(false);
+                
+                // Show a fake error message in the chat that fits the theme
+                appendMessage("ERR_CONNECTION_LOST. Failed to reach central node. Please try again.", 'model');
+                
+                // Remove the user message from history so they can retry without corrupting context
+                chatHistoryForAPI.pop(); 
+            }
+        }
+        
+        // Add a subtle fade-in keyframe to the tailwind config dynamically for message bubbles
+        const styleSheet = document.createElement("style");
+        styleSheet.textContent = `
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translateY(10px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+        `;
+        document.head.appendChild(styleSheet);
+
+    </script>
+</body>
+</html>
