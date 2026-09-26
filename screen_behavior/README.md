@@ -291,17 +291,67 @@ A new state must hold 5s before it's reported (AWAY/IDLE transitions are
 immediate). Read `update.screen.user_state` / `user_state_seconds`.
 Body tracking can call `brain.awareness.set_user_present(True/False/None)`.
 
-### Utility-scored behavior
-`pet/utility.py`. Every behavior gets a score each decision from needs, mood,
-user state, typing/mouse, distraction budget, and memory (recent behaviors
-×0.4). The highest eligible behavior wins; ones within 0.12 of the best are
-picked at random so buddy isn't robotic. Hard safety rules still come first
-(critically tired → sleep, critically lonely → ask for attention).
-`brain.behavior.score_all(pet, screen)` shows every score for debugging.
+### Utility behavior brain
 
-Also fixed: sleep now continues until energy reaches 60 (it used to nap 20s
-and re-trigger all day), and play-dead ends on its own after 90s if nobody
-yells.
+`BehaviorEngine.decide()` runs a fixed pipeline; the first stage that
+applies decides (`decision.source` says which):
+
+1. `play_dead`: loud-voice wake, 90s timeout, or keep playing dead
+2. `sleep`: stay asleep until energy reaches 75
+3. `urgent`: energy ≤ 18 → sleep; attention ≤ 18 or hunger ≥ 80 → ask for
+   attention. Urgent needs interrupt commitments.
+4. `commitment`: keep the current behavior until its commitment ends
+5. hard eligibility (excluded before scoring): min energy, cooldown,
+   distraction budget, and "not tired enough to nap" (energy ≥ 45)
+6. `utility`: every eligible behavior gets points (not a probability)
+7. controlled variation: behaviors within 12 points of the leader (and at
+   least 60% of its score) get lottery tickets in proportion to how close
+   they are; one is drawn with the engine's seeded RNG. A clearly worse
+   behavior can never win.
+
+Utility = labeled components, so every decision is explainable:
+
+```python
+d = brain.update().decision
+d.behavior_scores   # {Behavior.STUDY_WITH_USER: 83.0, Behavior.SIT_DOWN: 42.1, ...}
+d.score_breakdown   # {"base": 8, "context": 39, "focus": 34.2, "variation": -1.3}
+d.candidates        # the strong behaviors the pick was drawn from
+d.reason            # "keeping the user company while they work (context +39, focus +34)"
+```
+
+Components: `base`, `context` (activity fit × classifier confidence),
+`energy`/`tiredness`/`boredom`/`loneliness`/`affection`/`hunger`, `mood`,
+`special_mood`, `focus` (how engaged the user is in work: typing, confidence,
+session length, user state), `idle`, `mouse`, `hyper`, `distraction`
+(focus penalty + low budget + recent distracting behaviors), `repetition`,
+`recency`, `attention_request` (fades over 5 min after asking), `ignored`,
+`whim` (rare behaviors), `variation` (±3), `preference`.
+
+**Tuning:** every number is in `pet/utility_config.py`: one
+`BehaviorProfile` per behavior plus global weights and urgent thresholds.
+`BehaviorSpec` in `pet/config.py` still owns min energy, energy cost,
+commitment, cooldown, and the distracting flag.
+
+**Hyper:** `InteractionEffect(hyper_seconds=60)` makes buddy hyper (excited
+mood, energetic behaviors score higher) until it counts down. Whoever owns
+treats/events decides when; the brain only reacts.
+
+**Future personalization:** `BehaviorEngine(preference=fn)` takes
+`fn(behavior, scoring_context) -> points`, clamped to ±10, so a learned layer
+can nudge choices without ever overriding urgent needs or hard rules.
+
+**Brain simulator** (no UI, sensors, or animation):
+
+```bash
+python3 -m screen_behavior.demo_brain                    # all scenarios A-I
+python3 -m screen_behavior.demo_brain --scenario coding --scores 5
+python3 -m screen_behavior.demo_brain --list
+```
+
+Scenarios: long coding, going idle, video, high boredom, lonely, low
+energy, hyper, high affection, and 60 repeated cycles. Each row shows time,
+activity, energy/attention/hunger/boredom, mood, behavior, deciding stage,
+top scores, and reason; each scenario ends with a pattern summary.
 
 ### Simulation harness
 `simulation.py` runs the full pipeline on simulated time: hours in about a

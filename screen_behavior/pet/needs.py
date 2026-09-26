@@ -16,6 +16,10 @@ class NeedsSystem:
         state.hunger += c.hunger_per_second * dt
         state.attention -= c.attention_drain_per_second * dt
         state.boredom += c.boredom_gain_per_second * dt
+        state.hyper_seconds_remaining = max(
+            0.0,
+            state.hyper_seconds_remaining - dt,
+        )
 
         if state.current_behavior == Behavior.SLEEP:
             state.energy += c.sleep_energy_restore_per_second * dt
@@ -42,6 +46,8 @@ class NeedsSystem:
             state.mood = BaseMood.TIRED
         elif state.hunger >= 75:
             state.mood = BaseMood.HUNGRY
+        elif state.is_hyper:
+            state.mood = BaseMood.EXCITED
         elif state.attention <= 18:
             state.mood = BaseMood.LONELY
         elif state.energy >= 82 and state.affection >= 70:
