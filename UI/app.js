@@ -19,7 +19,9 @@
 // storage becomes the source of truth for settings, headpats, feeding and
 // chat, so everything stays in sync with the buddy on other websites.
 // Without the extension, the page talks to the app server directly and
-// remembers state in localStorage.
+// remembers state in localStorage. That's always the case in the desktop
+// window (pywebview), where extensions can't run; there the extension chip
+// only shows whether the app server has heard from the extension.
 
 (() => {
   const B = globalThis.BuddyCharacters;
@@ -94,6 +96,7 @@
   let pets = 0;
   let lastFed = Date.now();
   let ext = null; // { version } once the extension answers
+  let extSeen = false; // the app server has had heartbeats from the extension
   let typing = false;
   let lastInput = Date.now();
   let hiddenAt = 0;
@@ -182,12 +185,18 @@
     if (ext) {
       extStatus.textContent = `Extension: connected v${ext.version}`;
       extStatus.dataset.state = "good";
+    } else if (extSeen) {
+      extStatus.textContent = "Extension: connected";
+      extStatus.dataset.state = "good";
     } else {
       extStatus.textContent = "Extension: not installed";
       extStatus.dataset.state = "warn";
     }
+    // The setting lives in the extension's storage, which only bridge.js reaches.
     showOnSites.disabled = !ext;
-    showOnSites.parentElement.title = ext ? "" : "Install the extension to see your buddy on other websites.";
+    showOnSites.parentElement.title = ext ? ""
+      : extSeen ? "Right-click your buddy on any website to hide it."
+      : "Install the extension to see your buddy on other websites.";
   }
 
   async function checkServer() {
@@ -196,6 +205,10 @@
       const status = await res.json();
       aiStatus.textContent = status.ai === "claude" ? "AI: Claude" : "AI: built-in replies";
       aiStatus.dataset.state = status.ai === "claude" ? "good" : "warn";
+      if (!!status.extension_seen !== extSeen) {
+        extSeen = !!status.extension_seen;
+        renderExtStatus();
+      }
     } catch {
       aiStatus.textContent = "AI: app server offline";
       aiStatus.dataset.state = "warn";
@@ -525,6 +538,7 @@
   extStatus.textContent = "Extension: checking…";
   extStatus.dataset.state = "unknown";
   checkServer();
+  setInterval(checkServer, 5000); // the desktop window is never reloaded
   renderCompanion(null);
 
   // The bridge announces itself when it loads; ask too, in case it loaded first.

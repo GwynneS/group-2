@@ -4,14 +4,21 @@ Serves the UI, shares the browser extension's files with it, packages the
 extension as a download, runs the companion brain (screen_behavior) with
 optional webcam body tracking (BodyTracking), and answers chat messages.
 
-    python3 UI/server.py            # then open http://127.0.0.1:8765
-    python3 UI/server.py --camera --open
+    python3 UI/server.py            # the app in a desktop window (pywebview)
+    python3 UI/server.py --open     # the app in your browser instead
+    python3 UI/server.py --no-window --camera
+
+The desktop window shows the same page the server serves at
+http://127.0.0.1:8765. The server keeps running either way, because the
+browser extension talks to it. Without pywebview the app opens nothing and
+prints the URL instead.
 
 Routes
     GET  /                              UI/index.html (and other files in UI/)
     GET  /extension/<file>              files from browser_extension/ (characters.js, art/...)
     GET  /download/buddy-extension.zip  the extension, zipped fresh on each request
-    GET  /api/status                    what's running: AI, brain awareness source, camera
+    GET  /api/status                    what's running: AI, brain awareness source, camera,
+                                        and whether the extension has checked in
     GET  /api/state                     live companion state (see companion.py)
     POST /api/presence                  {"title", "host"} of the focused tab -> state
     POST /api/interact                  {"action": pet|poke|chat|copy_paste|feed, "food"?} -> result + state
@@ -38,6 +45,7 @@ import mimetypes
 import random
 import re
 import sys
+import threading
 import webbrowser
 import zipfile
 from http import HTTPStatus
@@ -246,6 +254,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "extension_version": extension_version(),
                 "brain": companion.awareness_source if companion else "off",
                 "camera": companion.camera.status if companion else "unavailable",
+                "extension_seen": bool(companion and companion.extension_seen),
             })
 
         if path == "/api/state":
@@ -391,11 +400,42 @@ def make_server(host: str = HOST, port: int = PORT, state_provider=None) -> Thre
     return server
 
 
+# --- Desktop window ------------------------------------------------------------
+
+def run_window(url: str) -> bool:
+    """Show the app in a desktop window until it's closed.
+
+    Returns False without opening anything when pywebview (or the GUI toolkit
+    it needs) isn't installed.
+    """
+    try:
+        import webview  # optional dependency
+    except ImportError:
+        print(f"[window] pywebview not installed (pip install pywebview); open {url} in your browser")
+        return False
+
+    # Both default to off in pywebview. Downloads are off, so the
+    # "Download extension" button would do nothing. Private mode is on, so
+    # localStorage would be wiped at every launch, and the page keeps the
+    # buddy choice, chat and headpats there (the extension can't run in here).
+    webview.settings["ALLOW_DOWNLOADS"] = True
+    webview.create_window("AI Buddy", url, width=1180, height=800, min_size=(420, 560))
+    try:
+        webview.start(private_mode=False)
+    except webview.errors.WebViewException as exc:  # e.g. Linux without GTK or Qt
+        print(f"[window] Couldn't open the desktop window ({exc}); open {url} in your browser")
+        return False
+    return True
+
+
 def main() -> None:
     global companion
-    parser = argparse.ArgumentParser(description="Run the Buddy website and companion hub.")
+    parser = argparse.ArgumentParser(description="Run the Buddy app and companion hub.")
     parser.add_argument("--camera", action="store_true", help="start webcam body tracking right away")
-    parser.add_argument("--open", action="store_true", help="open the website in your browser")
+    parser.add_argument("--open", action="store_true",
+                        help="open the app in your browser instead of the desktop window")
+    parser.add_argument("--no-window", action="store_true",
+                        help="only run the server (the extension still works); open the app at the printed URL")
     parser.add_argument("--no-native-awareness", action="store_true",
                         help="don't watch other apps; use only the browser tab the extension reports")
     parser.add_argument("--mic", action="store_true",
@@ -417,21 +457,26 @@ def main() -> None:
         else:
             print("[camera] Body tracking needs OpenCV and MediaPipe: pip install -r requirements.txt")
 
+    # The window has to own the main thread (macOS requires it), so the server
+    # always runs in the background.
     server = make_server(HOST, args.port)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
     url = f"http://{HOST}:{args.port}"
     sys.stdout.reconfigure(line_buffering=True)
     print(f"Buddy app running at {url}")
     print(f"  AI chat:      {'Claude' if claude.available else 'built-in replies'}")
     print(f"  Brain:        screen awareness from {'this computer' if companion.awareness_source == 'native' else 'the browser extension'}")
     print(f"  Body tracking: {companion.camera.status}")
-    if args.open:
-        webbrowser.open(url)
     try:
-        server.serve_forever()
+        if args.open or args.no_window or not run_window(url):
+            if args.open:
+                webbrowser.open(url)
+            threading.Event().wait()  # serve until Ctrl+C
     except KeyboardInterrupt:
         pass
     finally:
         companion.close()
+        server.shutdown()
         server.server_close()
 
 

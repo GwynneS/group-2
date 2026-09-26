@@ -10,6 +10,7 @@ import unittest
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -110,6 +111,30 @@ class CompanionServiceTests(unittest.TestCase):
         self.service.report_browser("", "")
         self.assertIn("docs.python.org", self.service.browser_backend.snapshot().foreground.title)
 
+    def test_extension_is_seen_after_its_first_heartbeat(self):
+        self.assertFalse(self.service.extension_seen)
+        self.service.record_browser_activity({"title": "Notes", "host": "docs.python.org"})
+        self.assertTrue(self.service.extension_seen)
+
+
+class DesktopWindowTests(unittest.TestCase):
+    def test_without_pywebview_nothing_opens(self):
+        with mock.patch.dict(sys.modules, {"webview": None}):  # makes `import webview` fail
+            self.assertFalse(server.run_window("http://127.0.0.1:8765"))
+
+    def test_window_allows_downloads_and_keeps_local_storage(self):
+        fake = SimpleNamespace(
+            settings={"ALLOW_DOWNLOADS": False},
+            create_window=mock.Mock(),
+            start=mock.Mock(),
+            errors=SimpleNamespace(WebViewException=RuntimeError),
+        )
+        with mock.patch.dict(sys.modules, {"webview": fake}):
+            self.assertTrue(server.run_window("http://127.0.0.1:8765"))
+        self.assertTrue(fake.settings["ALLOW_DOWNLOADS"])
+        self.assertEqual(fake.create_window.call_args.args[1], "http://127.0.0.1:8765")
+        self.assertIs(fake.start.call_args.kwargs["private_mode"], False)
+
 
 class ServerRouteTests(unittest.TestCase):
     @classmethod
@@ -152,6 +177,12 @@ class ServerRouteTests(unittest.TestCase):
         data = json.loads(raw)
         self.assertEqual(data["brain"], "browser")
         self.assertIn(data["camera"], {"off", "unavailable"})
+
+    def test_status_reports_extension_after_a_heartbeat(self):
+        status, _ = self.post("/api/browser-activity", {"title": "Notes", "host": "docs.python.org"})
+        self.assertEqual(status, 200)
+        _, raw = self.get("/api/status")
+        self.assertTrue(json.loads(raw)["extension_seen"])
 
     def test_interact_route(self):
         status, data = self.post("/api/interact", {"action": "pet"})

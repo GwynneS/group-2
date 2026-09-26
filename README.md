@@ -11,10 +11,13 @@
 
 ```bash
 pip install -r requirements.txt   # optional extras; see below
-python3 UI/server.py --open       # add --camera to start body tracking right away
+python3 UI/server.py              # add --camera to start body tracking right away
 ```
 
-This opens http://127.0.0.1:8765, the Buddy website. From there you can:
+This opens the Buddy app in its own desktop window. Closing the window quits
+the app. The same page is served at http://127.0.0.1:8765, which is where the
+browser extension connects. Use `--open` to open the app in your browser
+instead, or `--no-window` to only run the server. From the app you can:
 
 - pick Mochi (cat girl) or Kiko (cat boy), pet, poke and feed them
 - watch their needs (hunger, energy, attention, affection, boredom) and mood live
@@ -22,15 +25,18 @@ This opens http://127.0.0.1:8765, the Buddy website. From there you can:
 - chat with them (they know how they're feeling)
 - download the browser extension (**Download extension**, then follow the install steps)
 
-With the extension installed, your buddy floats on every website you visit,
-shows the same moods, and shares one set of settings and one chat history
-with the website. Right-click it to chat, feed, switch character or hide it.
+With the extension installed, your buddy floats on every website you visit
+and shows the same moods. Right-click it to chat, feed, switch character or
+hide it. When the app is open in that same browser (`--open`), it also shares
+one set of settings and one chat history with the extension. The desktop
+window keeps its own, because extensions can't run inside it.
 
 Every extra is optional. The app runs with plain Python and tells you what's
 missing:
 
 | Extra | Install | Without it |
 |---|---|---|
+| Desktop window | `pip install pywebview` (included in `requirements.txt`; Linux also needs GTK or Qt) | The app prints its URL; open it in your browser |
 | AI chat (Claude) | `pip install -r UI/requirements.txt`, then `export ANTHROPIC_API_KEY=...` | Short built-in replies |
 | Screen awareness (which app you're in, typing) | `pip install -r screen_behavior/requirements.txt` (+ `requirements-macos.txt` on macOS) | The brain uses the browser tab the extension reports |
 | Body tracking (webcam) | `pip install mediapipe` (included in `requirements.txt`) | Camera panel explains how to enable it |
@@ -51,7 +57,7 @@ missing:
 
 | Piece | Folder | Role |
 |---|---|---|
-| App server | `UI/server.py` | Website, extension download, chat, and the API below |
+| App server | `UI/server.py` | Desktop window, website, extension download, chat, and the API below |
 | Companion hub | `UI/companion.py` | Runs the brain every second, the optional camera, and turns interactions into need changes |
 | Brain | `screen_behavior/` | Pet needs, mood, behavior and feeding rules |
 | Body tracking | `BodyTracking/tracking.py` | Webcam presence and gestures; feeds reactions and the live video panel |

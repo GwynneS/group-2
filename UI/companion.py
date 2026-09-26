@@ -225,6 +225,9 @@ class CompanionService:
         # enable_microphone: loudness only, never recorded; a yell wakes play-dead.
         self.brain = CompanionBrain(awareness=awareness, enable_microphone=enable_microphone)
         self.camera = CameraWorker(self._on_body)
+        # True once the browser extension has sent a heartbeat. The desktop
+        # window can't talk to the extension, so this is how it knows.
+        self.extension_seen = False
         self._update = None
         self._reaction: Reaction | None = None
         self._body = None
@@ -270,6 +273,7 @@ class CompanionService:
     def record_browser_activity(self, payload: dict) -> None:
         """Extension heartbeat: tab title/host plus counts (clicks, keys,
         copies, pastes, scroll, active time). Never key identities or text."""
+        self.extension_seen = True
         if not payload.get("left"):
             self.report_browser(str(payload.get("title", ""))[:200], str(payload.get("host", ""))[:100])
         record = getattr(self.brain.awareness, "record_browser_activity", None)
