@@ -120,21 +120,6 @@ body {
     font-weight: 700;
 }
 
-.pixel-character-wrap {
-    flex: 1;
-    min-height: 0;
-    display: grid;
-    place-items: center;
-}
-
-#buddy-sprite {
-    display: block;
-    width: min(256px, 82%);
-    max-height: 100%;
-    image-rendering: pixelated;
-    filter: drop-shadow(6px 6px 0 #21162e);
-}
-
 #animation-caption {
     max-width: 100%;
     min-height: 18px;
@@ -264,10 +249,6 @@ body {
     #interaction-box {
         min-height: 340px;
     }
-
-    #buddy-sprite {
-        width: min(224px, 68vw);
-    }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -349,7 +330,7 @@ body {
 .pixel-button:focus-visible,
 .buddy-choice:focus-visible,
 .toggle input:focus-visible,
-#buddy-canvas:focus-visible {
+.buddy-poke:focus-visible {
     outline: 3px dashed var(--lime);
     outline-offset: 2px;
 }
@@ -361,14 +342,45 @@ body {
     gap: 14px;
 }
 
+/* Light stage so the black-haired buddies stand out. */
 .buddy-stage {
     min-width: 0;
     gap: 6px;
+    justify-content: flex-end;
+    padding-bottom: 10px;
+    background-color: var(--surface-soft);
+    background-image:
+        linear-gradient(45deg, #e4d2fa 25%, transparent 25%, transparent 75%, #e4d2fa 75%),
+        linear-gradient(45deg, #e4d2fa 25%, transparent 25%, transparent 75%, #e4d2fa 75%);
+    border-color: var(--line);
 }
 
-#buddy-canvas {
-    image-rendering: pixelated;
+.buddy-stage #animation-caption {
+    color: var(--ink);
+}
+
+.buddy-poke {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    min-height: 140px;
+    padding: 0;
+    background: none;
+    border: 0;
     cursor: pointer;
+}
+
+.buddy-poke .buddy-pose {
+    filter: drop-shadow(4px 4px 0 rgba(43, 25, 64, 0.25));
+}
+
+.buddy-poke.floating {
+    animation: buddy-float 2400ms ease-in-out infinite;
+}
+
+@keyframes buddy-float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-4px); }
 }
 
 .buddy-settings {
@@ -403,10 +415,26 @@ body {
 .buddy-choice:hover { background: var(--lilac); }
 .buddy-choice[aria-pressed="true"] { background: var(--lime); }
 
-.buddy-choice canvas {
-    width: 64px;
+.choice-art {
+    height: 96px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+}
+
+.choice-art img {
     height: 88px;
-    image-rendering: pixelated;
+    width: auto;
+}
+
+.buddy-choice .name {
+    font-size: 16px;
+    line-height: 1.1;
+    text-align: center;
+}
+
+#feed-buddy {
+    align-self: flex-start;
 }
 
 .toggle {
@@ -510,6 +538,116 @@ body {
     }
 }
 
+<<<<<<< HEAD
+/* --- Live companion: camera feed, needs, mood --- */
+
+.video-stage {
+    position: relative;
+    gap: 10px;
+    padding: 12px;
+    text-align: center;
+}
+
+#camera-feed {
+    display: block;
+    max-width: 100%;
+    max-height: 100%;
+    min-height: 0;
+    flex: 1;
+    object-fit: contain;
+    border: 2px solid #21162e;
+}
+
+#camera-feed:not([hidden]) ~ #camera-note {
+    display: none;
+}
+
+#camera-badge {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: #d64561;
+}
+
+#camera-note {
+    max-width: 34ch;
+}
+
+.body-status {
+    margin: 0;
+    font-size: 18px;
+    color: var(--lime);
+}
+
+.mood-line {
+    margin: 0;
+    color: var(--muted);
+    font-size: 17px;
+    line-height: 1.2;
+    text-align: center;
+}
+
+.buddy-settings {
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.feed-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.feed-row .pixel-button {
+    padding: 6px 10px;
+}
+
+.pixel-button:disabled {
+    background: var(--surface-soft);
+    color: var(--muted);
+    cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
+}
+
+.needs {
+    display: grid;
+    gap: 4px;
+}
+
+.need {
+    display: grid;
+    grid-template-columns: 76px 1fr;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    line-height: 1;
+}
+
+.need .bar {
+    height: 10px;
+    background: var(--surface-soft);
+    border: 2px solid var(--line);
+}
+
+.need .bar span {
+    display: block;
+    height: 100%;
+    width: 0;
+    background: var(--violet);
+    transition: width 400ms steps(8, end);
+}
+
+/* Hunger and boredom are "bad when high": warn in the same bar style. */
+.need.high[data-need="hunger"] .bar span,
+.need.high[data-need="boredom"] .bar span,
+.need.low:not([data-need="hunger"]):not([data-need="boredom"]) .bar span {
+    background: #d64561;
+}
+
+#feed-buddy {
+    align-self: auto;
+=======
 /* --- Companion brain panel (driven by GET /api/state) --------------------- */
 
 .brain-panel {
@@ -581,4 +719,5 @@ body {
     .mood-animation {
         width: 100%;
     }
+>>>>>>> 4c4be53baaa5a9f9b14e529463ac5dc625fcd7ff
 }

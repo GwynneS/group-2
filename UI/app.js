@@ -1,4 +1,18 @@
-// Buddy UI: animated buddy, buddy settings, chat, and extension download.
+// Buddy UI: buddy settings, reactions to the user, chat, live camera, the
+// companion's needs, and extension download. The buddy itself is drawn by
+// animation.js (BuddyStage); this file decides how it reacts:
+//
+//   click (headpat)             happy          + headpat counted
+//   5+ clicks in 2s             angry
+//   Feed                        happy          resets hunger (45 min)
+//   chat message                by its words (see characters.js)
+//   copy / paste on this page   encouragement
+//   idle 90s                    tired          (resting pose, until you're back)
+//   back after 60s away         sad, then happy
+//
+// Headpats, pokes, feeding and copy/paste are also sent to the companion
+// brain (UI/server.py → screen_behavior), which updates the buddy's needs
+// and mood; its state comes back through BuddyStage.onState.
 //
 // The companion brain (screen_behavior/, running inside UI/server.py) drives
 // the buddy: GET /api/state says what it's doing and how it feels (see
@@ -7,22 +21,32 @@
 //
 // When the browser extension is installed, its bridge script (bridge.js)
 // answers on this page through window.postMessage, and the extension's
-// storage becomes the source of truth for settings, headpats and chat, so
-// everything stays in sync with the buddy on other websites. Without the
-// extension, the page talks to the app server directly and remembers state
-// in localStorage.
+// storage becomes the source of truth for settings, headpats, feeding and
+// chat, so everything stays in sync with the buddy on other websites.
+// Without the extension, the page talks to the app server directly and
+// remembers state in localStorage.
 
 (() => {
-  const S = globalThis.BuddySprites;
+  const B = globalThis.BuddyCharacters;
+  const stage = globalThis.BuddyStage;
   const $ = (id) => document.getElementById(id);
 
   const aiStatus = $("ai-status");
   const extStatus = $("ext-status");
   const downloadLink = $("download-extension");
   const installDialog = $("install-dialog");
-  const stage = $("buddy-canvas");
-  const caption = $("buddy-caption");
+  const poke = $("buddy-poke");
+  const caption = $("animation-caption");
   const choices = [...document.querySelectorAll(".buddy-choice")];
+  const feedButton = $("feed-buddy");
+  const treatButton = $("treat-buddy");
+  const needsBox = $("needs");
+  const moodLine = $("mood-line");
+  const cameraFeed = $("camera-feed");
+  const cameraBadge = $("camera-badge");
+  const cameraNote = $("camera-note");
+  const cameraToggle = $("camera-toggle");
+  const bodyStatus = $("body-status");
   const showOnSites = $("show-on-sites");
   const petCount = $("pet-count");
   const chatLog = $("chat-history");
@@ -38,31 +62,66 @@
     attention: $("need-attention"),
   };
 
-  const STAGE_SCALE = 3;
   const LOCAL_KEY = "buddy-app";
   const OFFLINE_TEXT = "I can't reach the Buddy app. Make sure python3 UI/server.py is running.";
+  const SLEEP_AFTER_MS = 90_000;
+  const WELCOME_AFTER_MS = 60_000;
+  const HUNGRY_AFTER_MS = 45 * 60_000;
 
-  if (!S) {
+  if (!B || !stage) {
     aiStatus.textContent = "App server offline";
     aiStatus.dataset.state = "warn";
     caption.textContent = "Start the app with python3 UI/server.py, then open http://127.0.0.1:8765";
     return;
   }
 
+  const LINES = {
+    girl: {
+      pet: ["Nya~ ♥", "Hehe, that tickles!", "More headpats please!"],
+      angry: ["Hey! Too many pokes!", "Nyaa! Stop that!"],
+      fed: ["Yum! Thank you~ ♥", "Fishies! Best buddy ever!"],
+      copy: ["Ooh, copied! Nice find~"],
+      paste: ["Pasted! You're on a roll~"],
+      missed: ["You left me all alone..."],
+      welcome: ["Welcome back! I missed you~"],
+      hungry: "Mochi is hungry... fish please?",
+      tired: "Zzz...",
+    },
+    boy: {
+      pet: ["Mrrp. Thanks.", "H-hey! ...okay, that's nice."],
+      angry: ["Okay, okay, that's enough!", "Hey! Quit it!"],
+      fed: ["Oh, fish! Thanks.", "Mrrp. That hit the spot."],
+      copy: ["Copied. Smart move."],
+      paste: ["Pasted! Keep it up."],
+      missed: ["...You were gone a while."],
+      welcome: ["There you are!"],
+      hungry: "Kinda hungry over here...",
+      tired: "Zzz...",
+    },
+  };
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
   // --- State ---------------------------------------------------------------
 
   let prefs = { character: null, visible: true };
   let chat = []; // [{ role: "user" | "buddy", text, at, error? }]
   let pets = 0;
+  let lastFed = Date.now();
   let ext = null; // { version } once the extension answers
   let typing = false;
+<<<<<<< HEAD
+  let lastInput = Date.now();
+  let hiddenAt = 0;
+=======
   let happyUntil = 0;
   let brain = null; // latest /api/state while the brain is running
   let noticeUntil = 0;
   let notice = "";
+>>>>>>> 4c4be53baaa5a9f9b14e529463ac5dc625fcd7ff
 
   const charKey = () => prefs.character ?? "girl";
-  const buddyName = () => S.CHARACTERS[charKey()].name;
+  const buddyName = () => B.CHARACTERS[charKey()].name;
+  const lines = () => LINES[charKey()];
 
   function loadLocal() {
     try {
@@ -71,6 +130,7 @@
         prefs = { ...prefs, ...saved.prefs };
         chat = Array.isArray(saved.chat) ? saved.chat : [];
         pets = saved.pets ?? 0;
+        lastFed = saved.lastFed ?? lastFed;
       }
     } catch {}
   }
@@ -78,7 +138,7 @@
   function saveLocal() {
     if (ext) return; // the extension stores everything once connected
     try {
-      localStorage.setItem(LOCAL_KEY, JSON.stringify({ prefs, chat: chat.slice(-50), pets }));
+      localStorage.setItem(LOCAL_KEY, JSON.stringify({ prefs, chat: chat.slice(-50), pets, lastFed }));
     } catch {}
   }
 
@@ -121,14 +181,18 @@
     if ("buddy" in data) prefs = { character: null, visible: true, ...data.buddy };
     if ("pets" in data) pets = data.pets ?? 0;
     if ("chat" in data) chat = data.chat ?? [];
+    if ("lastFed" in data && data.lastFed) lastFed = data.lastFed;
     renderSettings();
     renderChat();
+    updateResting();
   }
 
   function setPrefs(next) {
+    const changed = next.character !== prefs.character;
     prefs = next;
     renderSettings();
     renderChat();
+    if (changed) stage.react("encouragement", 1600, `Hi! I'm ${buddyName()}!`);
     if (ext) request("setBuddy", { buddy: next });
     else saveLocal();
   }
@@ -161,29 +225,139 @@
 
   downloadLink.addEventListener("click", () => installDialog.showModal());
 
-  // --- Buddy stage and settings -------------------------------------------
+  // --- Companion brain ------------------------------------------------------
 
-  const centerShift = (scale) => `translateX(${((S.W - S.BODY_W) / 2) * scale}px)`;
+  let companion = null; // latest /api/state, or null when the brain isn't running
 
-  stage.width = S.W * STAGE_SCALE;
-  stage.height = S.H * STAGE_SCALE;
-  const stageCtx = stage.getContext("2d");
-  stage.tabIndex = 0;
-
-  for (const btn of choices) {
-    const canvas = btn.querySelector("canvas");
-    canvas.width = S.W;
-    canvas.height = S.H;
-    canvas.style.transform = centerShift(2);
-    S.draw(canvas.getContext("2d"), btn.dataset.char, {}, 1);
-    btn.querySelector(".name").textContent = S.CHARACTERS[btn.dataset.char].name;
-    btn.addEventListener("click", () => setPrefs({ ...prefs, character: btn.dataset.char, visible: true }));
+  // Tell the brain about an interaction. Returns its result, or null if the
+  // app server isn't running the companion.
+  async function interact(action, extra = {}) {
+    try {
+      const res = await fetch("/api/interact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, ...extra }),
+      });
+      return res.status === 404 ? null : await res.json();
+    } catch {
+      return null;
+    }
   }
 
-  showOnSites.addEventListener("change", () => setPrefs({ ...prefs, visible: showOnSites.checked }));
+  const ACTIVITY_WORDS = {
+    coding: "coding", browsing: "browsing", gaming: "gaming", studying: "studying",
+    video: "watching videos", idle: "taking a break", other: "doing your thing",
+  };
 
-  function pet() {
-    happyUntil = performance.now() + 1500;
+  function renderCompanion(state) {
+    // animation_bridge.py's /api/state has only animation + message: no needs to show.
+    if (state && !state.pet) state = null;
+    companion = state;
+    needsBox.hidden = !state;
+    treatButton.hidden = !state;
+    if (!state) {
+      moodLine.textContent = "";
+      renderCamera(null);
+      return;
+    }
+    for (const row of needsBox.querySelectorAll(".need")) {
+      const value = state.pet[row.dataset.need];
+      row.querySelector(".bar span").style.width = `${value}%`;
+      row.classList.toggle("high", value >= 70);
+      row.classList.toggle("low", value <= 25);
+      row.title = `${row.dataset.need}: ${value}/100`;
+    }
+    const treats = state.feeding.wet_food_available;
+    treatButton.textContent = `Treat ×${treats}`;
+    treatButton.disabled = treats < 1;
+    moodLine.textContent = `Feeling ${state.pet.mood} · you're ${ACTIVITY_WORDS[state.activity.type] ?? state.activity.type}`;
+    renderCamera(state);
+  }
+
+  // --- Camera (BodyTracking) -------------------------------------------------
+
+  const BODY_WORDS = { at_desk: "At your desk", getting_up: "Getting up", away: "Away" };
+
+  function renderCamera(state) {
+    const camera = state?.camera ?? { status: "unavailable", error: "" };
+    const on = camera.status === "on" || camera.status === "starting";
+    if (on && !cameraFeed.getAttribute("src")) cameraFeed.src = `/api/camera.mjpg?${Date.now()}`;
+    if (!on && cameraFeed.getAttribute("src")) cameraFeed.removeAttribute("src");
+    cameraFeed.hidden = !on;
+    cameraBadge.hidden = camera.status !== "on";
+
+    cameraToggle.hidden = !state || camera.status === "unavailable";
+    cameraToggle.textContent = on ? "Stop camera" : "Start camera";
+    cameraToggle.disabled = camera.status === "starting";
+
+    if (!state) {
+      cameraNote.textContent = "Start the app with python3 UI/server.py to use the camera.";
+    } else if (camera.status === "unavailable") {
+      cameraNote.textContent = "Body tracking needs OpenCV and MediaPipe. Install them with pip install -r requirements.txt, then restart the app.";
+    } else if (camera.status === "error") {
+      cameraNote.textContent = camera.error;
+    } else if (!on) {
+      cameraNote.textContent = "Turn on the camera and your buddy notices when you sit down, take a break, lean in or wave.";
+    }
+
+    const body = state?.body;
+    bodyStatus.hidden = !body;
+    if (body) {
+      const extras = [body.hand_raised && "hand raised", body.leaning_in && "leaning in"].filter(Boolean);
+      bodyStatus.textContent = [BODY_WORDS[body.state] ?? body.state, ...extras].join(" · ");
+    }
+  }
+
+  cameraToggle.addEventListener("click", async () => {
+    const on = !(companion?.camera.status === "on");
+    cameraToggle.disabled = true;
+    try {
+      const res = await fetch("/api/camera", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ on }),
+      });
+      const data = await res.json();
+      if (res.ok) renderCompanion(data);
+      else cameraNote.textContent = data.error;
+    } catch {
+      cameraNote.textContent = "Couldn't reach the app server.";
+    }
+    cameraToggle.disabled = false;
+  });
+
+  stage.onState(renderCompanion);
+
+  // --- Reactions -------------------------------------------------------------
+
+  // Resting pose when nothing else is happening: asleep after a quiet spell,
+  // hungry when it's been a while since the last meal, otherwise lounging.
+  function updateResting() {
+    const asleep = Date.now() - lastInput > SLEEP_AFTER_MS;
+    const hungry = Date.now() - lastFed > HUNGRY_AFTER_MS;
+    stage.setResting(asleep ? "tired" : hungry ? "hungry" : "lounging");
+    stage.setDefaultCaption(
+      asleep ? lines().tired
+        : hungry ? lines().hungry
+        : prefs.character ? `${buddyName()} · click for a headpat`
+        : "Pick a buddy to get started"
+    );
+  }
+
+  const clickTimes = [];
+  function onPoke() {
+    const now = performance.now();
+    while (clickTimes.length && now - clickTimes[0] > 2000) clickTimes.shift();
+    clickTimes.push(now);
+    if (clickTimes.length >= 5) {
+      clickTimes.length = 0;
+      stage.react("angry", 2500, pick(lines().angry));
+      interact("poke");
+      return;
+    }
+    if (stage.isReacting("angry")) return; // let the sulk finish
+    stage.react("happy", 1800, pick(lines().pet));
+    interact("pet");
     if (ext) {
       // The extension counts it and forwards it to the brain.
       send("pet");
@@ -194,20 +368,99 @@
       postJSON("/api/interact", { type: "pet" }).catch(() => {});
     }
   }
-  stage.addEventListener("click", pet);
-  stage.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      pet();
+
+  async function feed(food = "dry") {
+    const result = await interact("feed", { food });
+    if (result && !result.accepted) {
+      // The brain decides: full, or no treats earned yet.
+      stage.react("sad", 2000, result.message.includes("full") ? "I'm full..." : "No treats yet. Keep working!");
+      return;
+    }
+    lastFed = Date.now();
+    stage.react("happy", 2000, food === "wet" ? "A treat!! Best day ever!" : pick(lines().fed));
+    if (ext) send("feed");
+    else saveLocal();
+    updateResting();
+  }
+
+  poke.addEventListener("click", onPoke);
+  feedButton.addEventListener("click", () => feed("dry"));
+  treatButton.addEventListener("click", () => feed("wet"));
+
+  document.addEventListener("copy", () => {
+    stage.react("encouragement", 2000, pick(lines().copy));
+    interact("copy_paste");
+  });
+  document.addEventListener("paste", () => {
+    stage.react("encouragement", 2000, pick(lines().paste));
+    interact("copy_paste");
+  });
+
+  let lastPresence = 0;
+  function noteInput() {
+    const wasAsleep = Date.now() - lastInput > SLEEP_AFTER_MS;
+    lastInput = Date.now();
+    if (wasAsleep) updateResting();
+    // Let the brain know you're active (at most every 5s). No tab info is
+    // sent from this page, so it keeps whatever activity the extension saw.
+    if (companion && lastInput - lastPresence > 5000) {
+      lastPresence = lastInput;
+      fetch("/api/presence", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => {});
+    }
+  }
+  for (const type of ["pointermove", "keydown", "scroll", "pointerdown"]) {
+    addEventListener(type, noteInput, { passive: true, capture: true });
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      hiddenAt = Date.now();
+    } else if (hiddenAt && Date.now() - hiddenAt > WELCOME_AFTER_MS) {
+      stage.react("sad", 1800, pick(lines().missed));
+      setTimeout(() => stage.react("happy", 1600, pick(lines().welcome)), 1800);
     }
   });
 
+  setInterval(updateResting, 5000);
+
+  // --- Settings ------------------------------------------------------------
+
+  function setChoicePose(btn, emotion, active) {
+    const img = btn.querySelector("img");
+    const src = `/extension/${B.artPath(btn.dataset.char, emotion)}`;
+    if (img.getAttribute("src") !== src) {
+      img.src = src;
+      const pose = img.parentElement;
+      pose.classList.remove("pose-in");
+      void pose.offsetWidth;
+      pose.classList.add("pose-in");
+    }
+    img.className = `buddy-figure emo-${emotion}${active ? " react" : ""}`;
+  }
+
+  for (const btn of choices) {
+    btn.querySelector(".name").textContent = `${B.CHARACTERS[btn.dataset.char].name} · ${B.CHARACTERS[btn.dataset.char].label}`;
+    btn.addEventListener("click", () => setPrefs({ ...prefs, character: btn.dataset.char, visible: true }));
+    // Hovering a choice makes that buddy cheer.
+    btn.addEventListener("mouseenter", () => setChoicePose(btn, "encouragement", true));
+    btn.addEventListener("mouseleave", renderSettings);
+  }
+
+  showOnSites.addEventListener("change", () => setPrefs({ ...prefs, visible: showOnSites.checked }));
+
   function renderSettings() {
     for (const btn of choices) {
-      btn.setAttribute("aria-pressed", String(btn.dataset.char === prefs.character));
+      const selected = btn.dataset.char === prefs.character;
+      btn.setAttribute("aria-pressed", String(selected));
+      setChoicePose(btn, "happy", false);
     }
     showOnSites.checked = !!prefs.visible;
     petCount.textContent = pets ? `Headpats given: ${pets}` : "";
+<<<<<<< HEAD
+    feedButton.textContent = `Feed ${buddyName()}`;
+    stage.setCharacter(charKey());
+    updateResting();
+=======
     renderCaption();
   }
 
@@ -316,6 +569,7 @@
     const bob = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : Math.round(Math.sin(now / 380) * 3);
     stage.style.transform = `${centerShift(STAGE_SCALE)} translateY(${bob}px)`;
     requestAnimationFrame(animate);
+>>>>>>> 4c4be53baaa5a9f9b14e529463ac5dc625fcd7ff
   }
 
   // --- Chat ----------------------------------------------------------------
@@ -345,6 +599,9 @@
 
   async function sendChat(text) {
     typing = true;
+    // React to what was said while the reply is on its way.
+    stage.react(B.emotionForText(text), 3000);
+
     if (ext) {
       // The extension records both sides of the conversation; its storage
       // change events re-render the log here and on every other tab.
@@ -396,10 +653,14 @@
   extStatus.textContent = "Extension: checking…";
   extStatus.dataset.state = "unknown";
   checkServer();
+<<<<<<< HEAD
+  renderCompanion(null);
+=======
   renderBrain();
   pollBrain();
   setInterval(pollBrain, 1000);
   requestAnimationFrame(animate);
+>>>>>>> 4c4be53baaa5a9f9b14e529463ac5dc625fcd7ff
 
   // The bridge announces itself when it loads; ask too, in case it loaded first.
   send("hello");

@@ -26,7 +26,74 @@ from screen_behavior.integration.presenter import (
 )
 from UI.server import make_server
 
+<<<<<<< HEAD
+UI_DIRECTORY = Path(__file__).resolve().parent / "UI"
+# The UI loads the buddy art and characters.js from here, under /extension/.
+EXTENSION_DIRECTORY = Path(__file__).resolve().parent / "browser_extension"
+ANIMATION_LABELS = {
+    "lounging": "Lounging",
+    "happy": "Happy",
+    "sad": "Sad",
+    "tired": "Tired",
+    "angry": "Angry",
+    "hungry": "Hungry",
+    "encouragement": "You got this!",
+}
+
+
+def animation_for_update(update: Any) -> str:
+    behavior = update.decision.behavior.value
+    mood = update.pet.mood.value
+
+    if behavior == "wave":
+        return "encouragement"
+    if behavior == "sleep" or mood == "tired" or update.pet.energy <= 15:
+        return "tired"
+    if mood == "hungry" or update.pet.hunger >= 70:
+        return "hungry"
+    if mood in {"mad", "annoyed"}:
+        return "angry"
+    if mood == "lonely" or behavior == "ask_for_attention":
+        return "sad"
+    if mood in {"happy", "excited"} or behavior in {"dance", "send_kiss"}:
+        return "happy"
+    return "lounging"
+
+
+class _AnimationRequestHandler(SimpleHTTPRequestHandler):
+    def __init__(
+        self,
+        *args: Any,
+        bridge: AnimationBridge,
+        **kwargs: Any,
+    ) -> None:
+        self.bridge = bridge
+        super().__init__(*args, directory=str(UI_DIRECTORY), **kwargs)
+
+    def do_GET(self) -> None:
+        request_path = urlsplit(self.path).path
+        if request_path == "/api/state":
+            payload = json.dumps(self.bridge.snapshot()).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+
+        if request_path.startswith("/extension/"):
+            self.directory = str(EXTENSION_DIRECTORY)
+            self.path = self.path[len("/extension"):]
+        elif request_path == "/":
+            self.path = "/index.html"
+        super().do_GET()
+
+    def log_message(self, format: str, *args: Any) -> None:
+        return
+=======
 __all__ = ["ANIMATION_LABELS", "AnimationBridge", "animation_for_update"]
+>>>>>>> 4c4be53baaa5a9f9b14e529463ac5dc625fcd7ff
 
 
 class AnimationBridge:
