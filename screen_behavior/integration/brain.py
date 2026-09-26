@@ -4,6 +4,10 @@ from dataclasses import dataclass
 from time import monotonic
 from typing import Callable
 
+from screen_behavior.awareness.microphone import (
+    MicrophoneActivity,
+    MicrophoneMonitor,
+)
 from screen_behavior.awareness.models import ScreenContext
 from screen_behavior.awareness.service import AwarenessService
 from screen_behavior.pet.behavior import (
@@ -31,6 +35,7 @@ class BrainUpdate:
     pet: PetState
     decision: BehaviorDecision
     feeding: FeedingStatus
+    microphone: MicrophoneActivity
 
 
 class CompanionBrain:
@@ -44,12 +49,20 @@ class CompanionBrain:
         needs: NeedsSystem | None = None,
         behavior: BehaviorEngine | None = None,
         feeding: FeedingSystem | None = None,
+        microphone: MicrophoneMonitor | None = None,
+        enable_microphone: bool = False,
         clock: Callable[[], float] = monotonic,
     ) -> None:
         self.awareness = awareness or AwarenessService()
         self.needs = needs or NeedsSystem()
         self.behavior = behavior or BehaviorEngine()
         self.feeding = feeding or FeedingSystem()
+
+        # Microphone is opt-in: pass enable_microphone=True or a monitor.
+        self.microphone = microphone
+        if self.microphone is None and enable_microphone:
+            self.microphone = MicrophoneMonitor()
+            self.microphone.start()
         self.pet = PetState()
 
         self._clock = clock
@@ -64,6 +77,13 @@ class CompanionBrain:
         self._last_tick = now
 
         screen = self.awareness.snapshot()
+        microphone = (
+            self.microphone.snapshot() if self.microphone is not None
+            else MicrophoneActivity(monitoring_available=False)
+        )
+
+        if microphone.loud_voice_detected:
+            signals = ExternalSignals(loud_voice_detected=True)
 
         self.needs.tick(
             self.pet,
@@ -89,6 +109,7 @@ class CompanionBrain:
             pet=self.pet,
             decision=decision,
             feeding=self.feeding.status(self.pet),
+            microphone=microphone,
         )
 
     def apply_interaction(
@@ -126,3 +147,5 @@ class CompanionBrain:
         close = getattr(self.awareness, "close", None)
         if callable(close):
             close()
+        if self.microphone is not None:
+            self.microphone.stop()

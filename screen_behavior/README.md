@@ -223,3 +223,30 @@ Try it:
 python3 -m screen_behavior.demo_feeding              # interactive
 python3 -m screen_behavior.demo_feeding --scenarios  # scripted
 ```
+
+
+## Voice / loudness detection (opt-in)
+
+Works on macOS and Windows via `sounddevice` (bundles PortAudio; no extra
+install). It is **off by default**:
+
+```python
+brain = CompanionBrain(enable_microphone=True)
+update = brain.update()
+update.microphone.user_talking          # voice above background noise
+update.microphone.loud_voice_detected   # user yelled
+```
+
+When `loud_voice_detected` is true, a play-dead buddy wakes up (surprised,
+waves). "Loud" is relative to the room's background noise, so normal talking
+doesn't count; a fan or music slowly raises the bar.
+
+Privacy: each ~50ms audio block becomes one loudness number and the samples
+are discarded. No recording, no speech-to-text, nothing leaves the machine.
+
+Permissions: macOS asks to allow Terminal/VS Code under Privacy & Security >
+Microphone. Windows: Settings > Privacy > Microphone > allow desktop apps.
+
+```bash
+python3 -m screen_behavior.demo_voice   # live meter; yell to wake buddy
+```
