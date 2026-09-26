@@ -9,3 +9,76 @@ body {
     justify-content: center;
     align-items: center;
 }
+
+/* The Window Container */
+.window-container {
+    width: 500px;
+    max-width: 90%;
+    height: 320px;
+    background: rgba(255, 255, 255, 0.4); /* Neutral semi-transparent base */
+    backdrop-filter: blur(12px); /* Frosted glass background blur */
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.4); /* Subtle glass edge */
+    border-radius: 8px;
+    overflow: hidden; 
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15), 
+                0 1px 3px rgba(0, 0, 0, 0.1);
+    display: flex;
+    flex-direction: column;
+}
+
+/* The Title Bar */
+.window-header {
+    background: rgba(30, 41, 59, 0.9); /* Slightly transparent dark slate */
+    color: #ffffff;
+    padding: 10px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    user-select: none; 
+}
+
+.window-title {
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+}
+
+/* Window Controls (The Dots/Buttons) */
+.window-controls {
+    display: flex;
+    gap: 8px;
+}
+
+.control-btn {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    transition: filter 0.2s ease;
+}
+
+.control-btn:hover {
+    filter: brightness(0.8);
+}
+
+/* Mac-style Window Colors */
+.control-btn.close { background-color: #ef4444; }     
+.control-btn.minimize { background-color: #f59e0b; }  
+.control-btn.maximize { background-color: #10b981; }  
+
+/* The Main Window Body */
+.window-content {
+    padding: 20px;
+    flex: 1; 
+    overflow-y: auto; 
+    color: #334155;
+    line-height: 1.6;
+}
+
+.window-content h3 {
+    margin-top: 0;
+    color: #0f172a;
+}
