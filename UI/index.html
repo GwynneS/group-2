@@ -21,28 +21,46 @@
             <div class="left-column">
                 <section id="video-box" class="panel-box">
                     <h2>Video Feed</h2>
-                    <div class="media-placeholder" aria-label="Video feed placeholder">
-                        <span class="media-icon" aria-hidden="true">LIVE</span>
-                        <p>Camera feed will appear here</p>
+                    <div class="media-placeholder video-stage">
+                        <img id="camera-feed" alt="Your webcam, with the body tracking skeleton" hidden>
+                        <span id="camera-badge" class="media-icon" aria-hidden="true" hidden>LIVE</span>
+                        <p id="camera-note">Turn on the camera and your buddy notices when you sit down, take a break, lean in or wave.</p>
+                        <p id="body-status" class="body-status" role="status" hidden></p>
+                        <button type="button" id="camera-toggle" class="pixel-button">Start camera</button>
                     </div>
                 </section>
 
                 <section id="animation-box" class="panel-box">
-<<<<<<< HEAD
                     <h2>Your Buddy</h2>
                     <div class="buddy-panel">
                         <div class="media-placeholder buddy-stage">
-                            <canvas id="buddy-canvas" aria-label="Your buddy. Click to give a headpat."></canvas>
-                            <p id="buddy-caption">Click to give a headpat</p>
+                            <button type="button" id="buddy-poke" class="buddy-poke" aria-label="Give your buddy a headpat">
+                                <span class="buddy-pose"><img id="buddy-figure" class="buddy-figure emo-happy" alt=""></span>
+                            </button>
+                            <p id="animation-caption" role="status"></p>
+                            <p id="mood-line" class="mood-line"></p>
                         </div>
                         <div class="buddy-settings">
                             <div class="choice-row" role="group" aria-label="Choose your buddy">
                                 <button type="button" class="buddy-choice" data-char="girl" aria-pressed="false">
-                                    <canvas></canvas><span class="name"></span>
+                                    <span class="choice-art"><span class="buddy-pose"><img class="buddy-figure emo-happy" alt=""></span></span>
+                                    <span class="name"></span>
                                 </button>
                                 <button type="button" class="buddy-choice" data-char="boy" aria-pressed="false">
-                                    <canvas></canvas><span class="name"></span>
+                                    <span class="choice-art"><span class="buddy-pose"><img class="buddy-figure emo-happy" alt=""></span></span>
+                                    <span class="name"></span>
                                 </button>
+                            </div>
+                            <div class="feed-row">
+                                <button type="button" id="feed-buddy" class="pixel-button">Feed</button>
+                                <button type="button" id="treat-buddy" class="pixel-button" disabled title="Treats are earned by 25 minutes of focused work">Treat ×0</button>
+                            </div>
+                            <div id="needs" class="needs" aria-label="Your buddy's needs" hidden>
+                                <div class="need" data-need="hunger"><span>Hunger</span><span class="bar"><span></span></span></div>
+                                <div class="need" data-need="energy"><span>Energy</span><span class="bar"><span></span></span></div>
+                                <div class="need" data-need="attention"><span>Attention</span><span class="bar"><span></span></span></div>
+                                <div class="need" data-need="affection"><span>Affection</span><span class="bar"><span></span></span></div>
+                                <div class="need" data-need="boredom"><span>Boredom</span><span class="bar"><span></span></span></div>
                             </div>
                             <label class="toggle" for="show-on-sites">
                                 <input type="checkbox" id="show-on-sites">
@@ -50,12 +68,6 @@
                             </label>
                             <p id="pet-count" class="small-note"></p>
                         </div>
-=======
-                    <h2>Imported Animation</h2>
-                    <div class="media-placeholder animation-placeholder" aria-label="Imported animation placeholder">
-                        <canvas id="buddy-sprite" width="64" height="64" role="img" aria-label="Detailed pixel cat companion, lounging"></canvas>
-                        <p id="animation-caption" role="status">Waiting for Python companion...</p>
->>>>>>> 3743982778b5ff5e377aedfd710b8d0b522a6f2f
                     </div>
                 </section>
             </div>
@@ -73,7 +85,6 @@
             </section>
         </div>
     </main>
-<<<<<<< HEAD
 
     <dialog id="install-dialog" aria-labelledby="install-title">
         <h2 id="install-title">Install the extension</h2>
@@ -86,10 +97,8 @@
         <form method="dialog"><button class="pixel-button">Got it</button></form>
     </dialog>
 
-    <script src="/extension/sprites.js"></script>
+    <script src="/extension/characters.js"></script>
+    <script src="animation.js"></script>
     <script src="app.js"></script>
-=======
-    <script src="animation.js" defer></script>
->>>>>>> 3743982778b5ff5e377aedfd710b8d0b522a6f2f
 </body>
 </html>

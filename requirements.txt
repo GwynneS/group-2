@@ -1,2 +1,8 @@
+# Everything for the full Buddy app (python3 UI/server.py).
+# macOS also needs: pip install -r screen_behavior/requirements-macos.txt
+# Every piece is optional: the app runs without them and says what's missing.
+
+-r screen_behavior/requirements.txt  # screen awareness: psutil, pynput, sounddevice
+-r UI/requirements.txt               # AI chat with Claude
 psutil>=6.0,<7
-mediapipe>=0.10.14,<1.0  # 1.0.x crashes on macOS ("Service is unavailable")
+mediapipe>=0.10.14,<1.0  # body tracking (brings OpenCV); 1.0.x crashes on macOS ("Service is unavailable")

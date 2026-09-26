@@ -11,6 +11,8 @@ from urllib.parse import urlsplit
 
 
 UI_DIRECTORY = Path(__file__).resolve().parent / "UI"
+# The UI loads the buddy art and characters.js from here, under /extension/.
+EXTENSION_DIRECTORY = Path(__file__).resolve().parent / "browser_extension"
 ANIMATION_LABELS = {
     "lounging": "Lounging",
     "happy": "Happy",
@@ -63,7 +65,10 @@ class _AnimationRequestHandler(SimpleHTTPRequestHandler):
             self.wfile.write(payload)
             return
 
-        if request_path == "/":
+        if request_path.startswith("/extension/"):
+            self.directory = str(EXTENSION_DIRECTORY)
+            self.path = self.path[len("/extension"):]
+        elif request_path == "/":
             self.path = "/index.html"
         super().do_GET()
 

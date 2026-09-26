@@ -6,14 +6,15 @@
 // Protocol (window.postMessage, same origin only):
 //   app -> extension  { source: "buddy-app", type, id?, ... }
 //     hello                    ask the extension to announce itself
-//     get          (id)        -> response { buddy, pets, chat }
+//     get          (id)        -> response { buddy, pets, chat, lastFed }
 //     setBuddy     (id, buddy) -> response {}
 //     pet                      count a headpat
+//     feed                     feed the buddy (resets hunger)
 //     chat         (id, text)  -> response { reply }
 //   extension -> app { source: "buddy-extension", type, ... }
 //     hello    { version }
 //     response { id, data }
-//     changed  { data: { buddy?, pets?, chat? } }
+//     changed  { data: { buddy?, pets?, chat?, lastFed? } }
 //
 // Browsing sessions recorded by content.js are deliberately not exposed here.
 
@@ -22,7 +23,7 @@
   if (location.port !== "8765") return;
 
   const api = globalThis.browser ?? globalThis.chrome;
-  const SHARED_KEYS = ["buddy", "pets", "chat"];
+  const SHARED_KEYS = ["buddy", "pets", "chat", "lastFed"];
 
   function post(msg) {
     window.postMessage({ source: "buddy-extension", ...msg }, location.origin);
@@ -50,6 +51,8 @@
         return post({ type: "response", id: msg.id, data: {} });
       case "pet":
         return api.runtime.sendMessage({ type: "pet" });
+      case "feed":
+        return api.storage.local.set({ lastFed: Date.now() });
       case "chat": {
         const text = String(msg.text ?? "").slice(0, 2000);
         const data = await api.runtime.sendMessage({ type: "chat", text });

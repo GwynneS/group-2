@@ -1,13 +1,28 @@
-// The on-page buddy: a pixel cat girl or cat boy that drifts around the
-// browser window, follows the cursor now and then, reacts to copy/paste,
-// can be petted (click) or moved (drag), and falls asleep when you're idle.
-// Right-click it to chat; the conversation is shared with the Buddy app
-// (UI/server.py) and every other tab.
+// The on-page buddy: a cat girl or cat boy that drifts around the browser
+// window and changes pose and motion in response to what you do:
+//
+//   click (pet)                  happy          bounce + hearts
+//   5+ clicks in 2s / shaking    angry          shake
+//   copy or paste                encouragement  pop, then hop
+//   chat message                 by its words (see characters.js)
+//   idle 90s                     tired          slow breathing, until you're back
+//   back after 60s away          sad, then happy
+//   not fed for 45 min           hungry         wiggle, until fed (right-click → Feed)
+//
+// Drag to move it; right-click to chat, feed, switch character or hide it.
+// The chat is shared with the Buddy app (UI/server.py) and every other tab.
+//
+// When the Buddy app is running, its companion brain (screen_behavior) sets
+// the resting pose and caption: hungry, tired, lonely... based on its needs.
+// Every few seconds, the focused tab's title and host go to the app
+// (127.0.0.1 only) so the brain knows whether you're coding, studying,
+// watching videos and so on. Headpats, pokes, feeding and copy/paste are
+// sent to the brain too.
 //
 // Preference lives in storage.local under `buddy`:
 //   { character: "girl" | "boy" | null, visible: boolean }
-// Changing it anywhere (popup, right-click menu, first-run picker) updates
-// every open tab live.
+// and the last feeding time under `lastFed`. Changing either anywhere
+// (popup, app, right-click menu, first-run picker) updates every tab live.
 
 (() => {
   if (window.top !== window || !document.documentElement) return;
@@ -15,34 +30,44 @@
   if (/^(127\.0\.0\.1|localhost)$/.test(location.hostname) && location.port === "8765") return;
 
   const api = globalThis.browser ?? globalThis.chrome;
-  const S = globalThis.BuddySprites;
+  const B = globalThis.BuddyCharacters;
 
-  const SCALE = S.SCALE;
-  const BW = S.W * SCALE;
-  const BH = S.H * SCALE;
+  const BW = 150; // box the buddy lives in; poses sit bottom-centre inside it
+  const BH = 140;
+  const ART_SCALE = 0.5; // art is drawn at 2x for sharp screens
   const EDGE = 8;
   const TOP_ROOM = 60; // keep space above for the speech bubble
   const SLEEP_AFTER_MS = 90_000;
   const WELCOME_AFTER_MS = 60_000;
+  const HUNGRY_AFTER_MS = 45 * 60_000;
+  const APP_POLL_MS = 4000;
   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const LINES = {
     girl: {
       greet: ["Hi hi! I'm Mochi~", "Mochi's here! Let's do our best!"],
       pet: ["Nya~ ♥", "Hehe, that tickles!", "Purrr...", "More headpats please!"],
+      angry: ["Hey! Too many pokes!", "Nyaa! Stop that!", "Put me down gently!"],
       copy: ["Ooh, copied! Nice find~", "Got it saved, nya!"],
       paste: ["Pasted! You're on a roll~", "Paste-tastic!"],
+      missed: ["You left me all alone...", "Where did you go?"],
       welcome: ["Welcome back! I missed you~", "Yay, you're back!"],
       wake: ["Mm? Oh! I'm awake, I'm awake!", "*yawn* ...morning~"],
+      hungry: ["Mochi is hungry... fish please?", "My tummy's rumbling~"],
+      fed: ["Yum! Thank you~ ♥", "Fishies! Best buddy ever!"],
       idle: ["You're doing great!", "Remember to drink water~", "Focus mode: activated!", "Nya~"],
     },
     boy: {
       greet: ["Hey! I'm Kiko. Let's get stuff done.", "Kiko reporting for duty!"],
       pet: ["H-hey! ...okay, that's nice.", "Mrrp. Thanks.", "Purr... don't tell anyone."],
+      angry: ["Okay, okay, that's enough!", "Hey! Quit it!", "Easy! I'm not a stress ball."],
       copy: ["Copied. Smart move.", "Nice grab!"],
       paste: ["Pasted! Keep it up.", "And... pasted. Nice."],
+      missed: ["...You were gone a while.", "Oh. You're back."],
       welcome: ["Welcome back! Ready to go?", "There you are!"],
       wake: ["Huh? I wasn't sleeping.", "*stretch* ...okay, I'm up."],
+      hungry: ["Any chance of a snack?", "Kinda hungry over here..."],
+      fed: ["Oh, fish! Thanks.", "Mrrp. That hit the spot."],
       idle: ["You've got this.", "Stretch break soon?", "Solid work so far.", "Mrrp."],
     },
   };
@@ -50,8 +75,11 @@
   const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
   const rand = (a, b) => a + Math.random() * (b - a);
   const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), Math.max(lo, hi));
+  const artUrl = (character, emotion) => api.runtime.getURL(B.artPath(character, emotion));
 
   let prefs = { character: null, visible: true };
+  let lastFed = Date.now();
+  let app = null; // companion state from the Buddy app, or null if it isn't running
 
   // --- DOM (inside a shadow root so page CSS can't touch it) ---------------
 
@@ -64,13 +92,16 @@
       :host { all: initial; }
       [hidden] { display: none !important; }
       * { box-sizing: border-box; font-family: "Press Start 2P", "VT323", ui-monospace, "Courier New", monospace; }
+      ${B.ANIMATION_CSS}
       .wrap { position: fixed; left: 0; top: 0; width: ${BW}px; height: ${BH}px; pointer-events: none; will-change: transform; }
-      canvas {
-        width: ${BW}px; height: ${BH}px; image-rendering: pixelated;
-        pointer-events: auto; cursor: grab; touch-action: none;
+      .flip { position: absolute; inset: 0; }
+      .flip.left { transform: scaleX(-1); }
+      .buddy-pose {
+        position: absolute; left: 50%; bottom: 0; translate: -50% 0;
         filter: drop-shadow(3px 3px 0 rgba(43, 25, 64, 0.25));
       }
-      canvas.dragging { cursor: grabbing; }
+      .buddy-figure { pointer-events: auto; cursor: grab; touch-action: none; }
+      .buddy-figure.dragging { cursor: grabbing; }
       .bubble {
         position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
         width: max-content; max-width: 190px; padding: 6px 8px;
@@ -83,10 +114,10 @@
         border: 4px solid transparent; border-top-color: #392452;
       }
       .heart {
-        position: absolute; color: #f06a9b; font-size: 14px; pointer-events: none;
+        position: absolute; color: #9b5de5; font-size: 16px; pointer-events: none;
         text-shadow: 1px 1px 0 #2b1940; animation: rise 900ms steps(6, end) forwards;
       }
-      @keyframes rise { to { transform: translateY(-40px); opacity: 0; } }
+      @keyframes rise { to { transform: translateY(-44px); opacity: 0; } }
 
       .menu, .picker {
         position: fixed; pointer-events: auto; background: #fff8df; color: #2b1940;
@@ -100,19 +131,15 @@
       .menu button + button { border-top: 2px solid #eee0ff; }
       .menu button:hover, .menu button:focus-visible { background: #eee0ff; }
 
-      .picker { right: 16px; bottom: 16px; padding: 14px; width: 260px; }
+      .picker { right: 16px; bottom: 16px; padding: 14px; width: 280px; }
       .picker h2 { margin: 0 0 10px; font-size: 10px; line-height: 1.6; text-transform: uppercase; }
-      .picker .choices { display: flex; gap: 10px; }
+      .picker .choices { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
       .picker button {
-        flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px;
-        padding: 8px 4px; background: #eee0ff; border: 2px solid #392452;
+        display: flex; flex-direction: column; align-items: center; gap: 6px;
+        padding: 8px 4px; background: #eee0ff; border: 2px solid #392452; text-align: center;
       }
       .picker button:hover, .picker button:focus-visible { background: #d8b8f2; }
-      .picker canvas {
-        width: ${BW}px; height: ${BH}px; cursor: pointer; filter: none; pointer-events: none;
-        /* center the body; the canvas has extra room on the right for the tail */
-        transform: translateX(${((S.W - S.BODY_W) / 2) * SCALE}px);
-      }
+      .picker img { height: 110px; width: auto; pointer-events: none; }
       .picker p { margin: 10px 0 0; font-size: 8px; line-height: 1.6; color: #715d88; }
 
       .chat {
@@ -152,15 +179,15 @@
       .chat input:focus-visible, .chat form button:focus-visible { outline: 2px dashed #7046a0; outline-offset: 1px; }
     </style>
     <div class="wrap" hidden>
+      <div class="flip"><div class="buddy-pose"><img class="buddy-figure" alt="Buddy" draggable="false"></div></div>
       <div class="bubble" hidden></div>
-      <canvas width="${BW}" height="${BH}" aria-label="Buddy"></canvas>
     </div>
     <div class="menu" hidden></div>
     <div class="picker" hidden>
       <h2>Pick your buddy!</h2>
       <div class="choices">
-        <button data-char="girl"><canvas width="${BW}" height="${BH}"></canvas>${S.CHARACTERS.girl.label}</button>
-        <button data-char="boy"><canvas width="${BW}" height="${BH}"></canvas>${S.CHARACTERS.boy.label}</button>
+        <button data-char="girl"><img alt="">${B.CHARACTERS.girl.name} · ${B.CHARACTERS.girl.label}</button>
+        <button data-char="boy"><img alt="">${B.CHARACTERS.boy.name} · ${B.CHARACTERS.boy.label}</button>
       </div>
       <p>You can switch any time: right-click your buddy or use the toolbar icon.</p>
     </div>
@@ -175,8 +202,9 @@
   `;
 
   const wrap = root.querySelector(".wrap");
-  const canvas = wrap.querySelector("canvas");
-  const ctx = canvas.getContext("2d");
+  const flip = wrap.querySelector(".flip");
+  const pose = wrap.querySelector(".buddy-pose");
+  const figure = wrap.querySelector(".buddy-figure");
   const bubble = root.querySelector(".bubble");
   const menu = root.querySelector(".menu");
   const picker = root.querySelector(".picker");
@@ -185,9 +213,14 @@
   const chatInput = chatPanel.querySelector("input");
 
   for (const btn of picker.querySelectorAll("button")) {
-    S.draw(btn.querySelector("canvas").getContext("2d"), btn.dataset.char, {}, SCALE);
+    btn.querySelector("img").src = artUrl(btn.dataset.char, "happy");
     btn.addEventListener("click", () => savePrefs({ character: btn.dataset.char, visible: true }));
   }
+
+  // Poses are shown at half their pixel size so they stay sharp.
+  figure.addEventListener("load", () => {
+    figure.style.width = `${figure.naturalWidth * ART_SCALE}px`;
+  });
 
   // --- State ---------------------------------------------------------------
 
@@ -199,13 +232,11 @@
     mode: "idle", // idle | wander | follow | sleep | chat
     modeUntil: 0,
     facingLeft: false,
-    nextBlink: 0,
-    blinkUntil: 0,
-    happyUntil: 0,
     lastInput: Date.now(),
     hiddenAt: 0,
     mouse: null,
   };
+  const reaction = { emotion: null, until: 0 };
   let bubbleTimer = 0;
   let running = false;
 
@@ -223,6 +254,70 @@
   function setMode(mode, ms = 0) {
     st.mode = mode;
     st.modeUntil = performance.now() + ms;
+  }
+
+  // Show `emotion` with its motion for `ms`, then fall back to the resting pose.
+  function react(emotion, ms, line) {
+    reaction.emotion = emotion;
+    reaction.until = performance.now() + ms;
+    if (line) say(line, ms + 600);
+  }
+
+  // With the app running, its brain decides hunger; otherwise a local timer does.
+  const isHungry = () => (app ? app.animation === "hungry" : Date.now() - lastFed > HUNGRY_AFTER_MS);
+
+  function currentPose(now) {
+    if (reaction.emotion && now < reaction.until) return { emotion: reaction.emotion, active: true };
+    if (st.mode === "sleep") return { emotion: "tired", active: false };
+    if (app && app.animation !== "lounging") return { emotion: app.animation, active: false };
+    if (isHungry()) return { emotion: "hungry", active: false };
+    return { emotion: "happy", active: false };
+  }
+
+  // --- Buddy app (companion brain) -----------------------------------------
+
+  function tellApp(action, extra = {}) {
+    try {
+      return api.runtime.sendMessage({ type: "interact", action, ...extra });
+    } catch {
+      return Promise.resolve(null); // extension reloaded; this page's script is orphaned
+    }
+  }
+
+  async function pollApp() {
+    if (!running || document.visibilityState !== "visible") return;
+    const page = document.hasFocus() ? { title: document.title, host: location.hostname } : null;
+    let next = null;
+    try {
+      next = await api.runtime.sendMessage({ type: "appState", page });
+    } catch {}
+    // Say what the brain is up to when it changes (hungry, lonely, sleepy...).
+    if (next && next.animation !== app?.animation && next.animation !== "lounging" && now() > reaction.until) {
+      say(next.message, 3500);
+    }
+    app = next;
+  }
+  const now = () => performance.now();
+  setInterval(pollApp, APP_POLL_MS);
+
+  let shownSrc = "";
+  let shownClass = "";
+  function showPose(emotion, active) {
+    const src = artUrl(prefs.character, emotion);
+    if (src !== shownSrc) {
+      shownSrc = src;
+      figure.src = src;
+      // Restart the little "pop" whenever the pose changes.
+      pose.classList.remove("pose-in");
+      void pose.offsetWidth;
+      pose.classList.add("pose-in");
+    }
+    const cls = `buddy-figure emo-${emotion}${active ? " react" : ""}${drag?.moved ? " dragging" : ""}`;
+    if (cls !== shownClass) figure.className = shownClass = cls;
+  }
+
+  function preload(character) {
+    for (const emotion of B.EMOTIONS) new Image().src = artUrl(character, emotion);
   }
 
   function clampToViewport() {
@@ -261,6 +356,9 @@
       say("Zzz...", 0);
     }
 
+    // Busy reacting: stay put until the reaction is over.
+    if (now < reaction.until && st.mode !== "chat") return false;
+
     let moving = false;
     switch (st.mode) {
       case "idle":
@@ -270,7 +368,8 @@
         moving = !moveToward(st.tx, st.ty, 60, dt);
         if (!moving || now > st.modeUntil) {
           setMode("idle", rand(2500, 7000));
-          if (Math.random() < 0.15) say(pick(lines().idle));
+          if (isHungry() && Math.random() < 0.4) say(pick(lines().hungry));
+          else if (Math.random() < 0.15) say(pick(lines().idle));
         }
         break;
       case "follow": {
@@ -299,21 +398,17 @@
 
   function render(now, moving) {
     if (!prefs.character) return;
-    const sleeping = st.mode === "sleep";
-    const happy = now < st.happyUntil;
+    const { emotion, active } = currentPose(now);
+    showPose(emotion, active);
+    flip.classList.toggle("left", st.facingLeft);
 
-    if (now > st.nextBlink) {
-      st.blinkUntil = now + 150;
-      st.nextBlink = now + rand(2500, 6000);
+    // Float gently; hop while travelling; sink low while asleep.
+    let bob = 0;
+    if (!reduceMotion) {
+      if (moving) bob = -Math.abs(Math.sin(now / 140)) * 6;
+      else if (st.mode === "sleep") bob = Math.sin(now / 900) * 1.5;
+      else if (!active) bob = Math.sin(now / 380) * 3;
     }
-    const eyes = sleeping || now < st.blinkUntil ? "closed" : happy ? "happy" : "open";
-    const tail = sleeping ? 0 : Math.floor(now / (happy ? 150 : 450)) % 2;
-    const step = moving ? 1 + (Math.floor(now / 180) % 2) : 0;
-
-    S.draw(ctx, prefs.character, { eyes, tail, step }, SCALE, st.facingLeft);
-
-    // Gentle hover bob; slower and smaller while asleep.
-    const bob = reduceMotion ? 0 : Math.sin(now / (sleeping ? 900 : 380)) * (sleeping ? 1.5 : 3);
     wrap.style.transform = `translate(${Math.round(st.x)}px, ${Math.round(st.y + bob)}px)`;
   }
 
@@ -331,6 +426,7 @@
     running = true;
     last = 0;
     requestAnimationFrame(frame);
+    pollApp();
   }
 
   function stop() {
@@ -340,73 +436,110 @@
   // --- Interaction: pet (click), move (drag), menu (right-click) -----------
 
   let drag = null;
+  const clickTimes = [];
 
-  canvas.addEventListener("pointerdown", (e) => {
+  figure.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
-    canvas.setPointerCapture(e.pointerId);
-    drag = { sx: e.clientX, sy: e.clientY, ox: st.x, oy: st.y, moved: false };
+    e.preventDefault();
+    figure.setPointerCapture(e.pointerId);
+    drag = { sx: e.clientX, sy: e.clientY, ox: st.x, oy: st.y, moved: false, dir: 0, flips: [] };
   });
 
-  canvas.addEventListener("pointermove", (e) => {
+  figure.addEventListener("pointermove", (e) => {
     if (!drag) return;
     const dx = e.clientX - drag.sx;
     const dy = e.clientY - drag.sy;
     if (!drag.moved && Math.hypot(dx, dy) < 5) return;
     drag.moved = true;
-    canvas.classList.add("dragging");
     st.x = drag.ox + dx;
     st.y = drag.oy + dy;
     clampToViewport();
+
+    // Shaking: several fast left-right direction changes within a second.
+    if (Math.abs(e.movementX) > 8) {
+      const dir = Math.sign(e.movementX);
+      if (drag.dir && dir !== drag.dir) {
+        const now = performance.now();
+        drag.flips = drag.flips.filter((t) => now - t < 1000).concat(now);
+        if (drag.flips.length >= 4 && reaction.emotion !== "angry") {
+          react("angry", 2500, pick(lines().angry));
+        }
+      }
+      drag.dir = dir;
+    }
     render(performance.now(), false);
   });
 
-  canvas.addEventListener("pointerup", () => {
+  figure.addEventListener("pointerup", () => {
     if (!drag) return;
     const wasDrag = drag.moved;
     drag = null;
-    canvas.classList.remove("dragging");
     wake();
     if (wasDrag) {
-      setMode("idle", 8000);
+      if (chatPanel.hidden) setMode("idle", 8000);
       savePosition();
     } else {
-      pet();
+      poke();
     }
   });
 
-  canvas.addEventListener("pointercancel", () => {
+  figure.addEventListener("pointercancel", () => {
     drag = null;
-    canvas.classList.remove("dragging");
   });
 
-  function pet() {
-    const now = performance.now();
-    st.happyUntil = now + 1500;
-    if (chatPanel.hidden) setMode("idle", 3000);
-    say(pick(lines().pet), 2200);
+  function hearts() {
     for (let i = 0; i < 3; i++) {
       const heart = document.createElement("span");
       heart.className = "heart";
       heart.textContent = "♥";
-      heart.style.left = `${rand(10, BW - 20)}px`;
-      heart.style.top = `${rand(0, 30)}px`;
+      heart.style.left = `${rand(20, BW - 30)}px`;
+      heart.style.top = `${rand(0, 40)}px`;
       heart.style.animationDelay = `${i * 120}ms`;
       wrap.append(heart);
       setTimeout(() => heart.remove(), 900 + i * 120);
     }
+  }
+
+  // A click is a headpat, unless it's one of many in quick succession.
+  function poke() {
+    const now = performance.now();
+    while (clickTimes.length && now - clickTimes[0] > 2000) clickTimes.shift();
+    clickTimes.push(now);
+    if (clickTimes.length >= 5) {
+      clickTimes.length = 0;
+      react("angry", 2500, pick(lines().angry));
+      tellApp("poke");
+      return;
+    }
+    react("happy", 1800, pick(lines().pet));
+    hearts();
+    tellApp("pet");
     try {
       api.runtime.sendMessage({ type: "pet", character: prefs.character });
     } catch {}
   }
 
-  canvas.addEventListener("contextmenu", (e) => {
+  async function feed() {
+    const result = await tellApp("feed");
+    if (result && !result.accepted) {
+      react("sad", 2000, result.message?.includes("full") ? "I'm full..." : pick(lines().hungry));
+      return;
+    }
+    api.storage.local.set({ lastFed: Date.now() });
+    lastFed = Date.now();
+    react("happy", 2000, pick(lines().fed));
+    hearts();
+  }
+
+  figure.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     const other = prefs.character === "girl" ? "boy" : "girl";
-    const o = S.CHARACTERS[other];
+    const o = B.CHARACTERS[other];
+    const me = B.CHARACTERS[prefs.character];
     menu.innerHTML = "";
-    const me = S.CHARACTERS[prefs.character];
     const items = [
       [`Chat with ${me.name}`, openChat],
+      [`Feed ${me.name}`, feed],
       [`Switch to ${o.name} (${o.label})`, () => savePrefs({ ...prefs, character: other })],
       ["Hide buddy", () => savePrefs({ ...prefs, visible: false })],
     ];
@@ -421,7 +554,7 @@
     }
     menu.hidden = false;
     menu.style.left = `${clamp(e.clientX, 8, innerWidth - 190)}px`;
-    menu.style.top = `${clamp(e.clientY, 8, innerHeight - 130)}px`;
+    menu.style.top = `${clamp(e.clientY, 8, innerHeight - 160)}px`;
   });
 
   addEventListener("pointerdown", (e) => {
@@ -435,7 +568,7 @@
   let chatWaiting = false;
 
   function openChat() {
-    chatPanel.querySelector(".chat-title").textContent = `Chat with ${S.CHARACTERS[prefs.character].name}`;
+    chatPanel.querySelector(".chat-title").textContent = `Chat with ${B.CHARACTERS[prefs.character].name}`;
     chatPanel.hidden = false;
     setMode("chat");
     wake();
@@ -453,7 +586,7 @@
   }
 
   function renderChat() {
-    const name = S.CHARACTERS[prefs.character ?? "girl"].name;
+    const name = B.CHARACTERS[prefs.character ?? "girl"].name;
     const rows = chatHistory.length
       ? chatHistory
       : [{ role: "buddy", text: `Hi! I'm ${name}. What are we working on?` }];
@@ -480,11 +613,12 @@
     chatInput.value = "";
     chatWaiting = true;
     renderChat();
+    // React to what was said while the reply is on its way.
+    react(B.emotionForText(text), 3000);
     try {
       // The background script records both sides; the storage listener
       // below re-renders the log here and in every other tab.
       await api.runtime.sendMessage({ type: "chat", text });
-      st.happyUntil = performance.now() + 1200;
     } catch {
       // Extension was reloaded; this page's script is orphaned.
     }
@@ -506,7 +640,7 @@
     st.lastInput = Date.now();
     if (st.mode === "sleep") {
       setMode("idle", 1500);
-      say(pick(lines().wake), 2500);
+      react("happy", 1500, pick(lines().wake));
     }
   }
 
@@ -518,15 +652,15 @@
   addEventListener("scroll", wake, { passive: true });
 
   document.addEventListener("copy", () => {
-    if (!prefs.character) return;
-    st.happyUntil = performance.now() + 1200;
-    say(pick(lines().copy), 2200);
+    if (!shouldShow()) return;
+    react("encouragement", 2000, pick(lines().copy));
+    tellApp("copy_paste");
   }, true);
 
   document.addEventListener("paste", () => {
-    if (!prefs.character) return;
-    st.happyUntil = performance.now() + 1200;
-    say(pick(lines().paste), 2200);
+    if (!shouldShow()) return;
+    react("encouragement", 2000, pick(lines().paste));
+    tellApp("copy_paste");
   }, true);
 
   document.addEventListener("visibilitychange", () => {
@@ -536,7 +670,9 @@
       savePosition();
     } else if (shouldShow()) {
       if (st.hiddenAt && Date.now() - st.hiddenAt > WELCOME_AFTER_MS) {
-        say(pick(lines().welcome));
+        // A little sulk about being left alone, then happy to see you.
+        react("sad", 1800, pick(lines().missed));
+        setTimeout(() => react("happy", 1600, pick(lines().welcome)), 1800);
       }
       start();
     }
@@ -571,11 +707,12 @@
       chatPanel.hidden = true;
       return;
     }
+    preload(prefs.character);
     if (!chatPanel.hidden) {
-      chatPanel.querySelector(".chat-title").textContent = `Chat with ${S.CHARACTERS[prefs.character].name}`;
+      chatPanel.querySelector(".chat-title").textContent = `Chat with ${B.CHARACTERS[prefs.character].name}`;
       renderChat();
     }
-    if (previous?.character !== prefs.character) say(pick(lines().greet));
+    if (previous?.character !== prefs.character) react("encouragement", 1800, pick(lines().greet));
     if (document.visibilityState === "visible") start();
   }
 
@@ -585,17 +722,20 @@
       chatHistory = changes.chat.newValue ?? [];
       if (!chatPanel.hidden) renderChat();
     }
+    if (changes.lastFed) lastFed = changes.lastFed.newValue ?? Date.now();
     if (!changes.buddy) return;
     const previous = prefs;
     prefs = { character: null, visible: true, ...changes.buddy.newValue };
     apply(previous);
   });
 
-  api.storage.local.get(["buddy", "buddyPos"]).then(({ buddy, buddyPos }) => {
-    prefs = { character: null, visible: true, ...buddy };
-    if (buddyPos) {
-      st.x = buddyPos.fx * innerWidth;
-      st.y = buddyPos.fy * innerHeight;
+  api.storage.local.get(["buddy", "buddyPos", "lastFed"]).then((data) => {
+    prefs = { character: null, visible: true, ...data.buddy };
+    if (data.lastFed) lastFed = data.lastFed;
+    else api.storage.local.set({ lastFed });
+    if (data.buddyPos) {
+      st.x = data.buddyPos.fx * innerWidth;
+      st.y = data.buddyPos.fy * innerHeight;
     }
     clampToViewport();
     setMode("idle", rand(1500, 4000));
