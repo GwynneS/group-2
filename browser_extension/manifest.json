@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Buddy Activity Tracker",
+  "version": "0.2.0",
+  "description": "A pixel cat girl or cat boy buddy that hangs out in your browser and cheers you on.",
+  "permissions": ["storage"],
+  "action": {
+    "default_title": "Buddy",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "scripts": ["sprites.js", "background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js", "sprites.js", "buddy.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "buddy-activity-tracker@group-2",
+      "strict_min_version": "121.0"
+    }
+  }
+}
