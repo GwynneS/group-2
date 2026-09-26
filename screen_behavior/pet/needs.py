@@ -42,6 +42,8 @@ class NeedsSystem:
             state.mood = BaseMood.TIRED
         elif state.hunger >= 75:
             state.mood = BaseMood.HUNGRY
+        elif state.is_hyper:
+            state.mood = BaseMood.EXCITED
         elif state.attention <= 18:
             state.mood = BaseMood.LONELY
         elif state.energy >= 82 and state.affection >= 70:

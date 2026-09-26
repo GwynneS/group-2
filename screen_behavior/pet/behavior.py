@@ -160,6 +160,24 @@ class BehaviorEngine:
                 "energy and affection are both very high",
             )
 
+        # Hyper after wet food. Still gives a working user some room.
+        if pet.is_hyper:
+            hyper_chance = 0.3 if screen.user_is_working else 0.8
+            energetic = [
+                b for b in (
+                    Behavior.DANCE,
+                    Behavior.WAVE,
+                    Behavior.WALK_AROUND_CORNER,
+                )
+                if self._available(b, pet, now)
+            ]
+
+            if energetic and self.rng.random() < hyper_chance:
+                return (
+                    self.rng.choice(energetic),
+                    "buddy is hyper after wet food",
+                )
+
         # Work-aware quiet behavior.
         if screen.user_is_working:
             preferred = [

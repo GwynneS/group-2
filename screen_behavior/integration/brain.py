@@ -11,6 +11,12 @@ from screen_behavior.pet.behavior import (
     BehaviorEngine,
     ExternalSignals,
 )
+from screen_behavior.pet.feeding import (
+    FeedingStatus,
+    FeedingSystem,
+    FeedResult,
+    FoodType,
+)
 from screen_behavior.pet.interactions import (
     InteractionEffect,
     apply_interaction_effect,
@@ -24,6 +30,7 @@ class BrainUpdate:
     screen: ScreenContext
     pet: PetState
     decision: BehaviorDecision
+    feeding: FeedingStatus
 
 
 class CompanionBrain:
@@ -36,11 +43,13 @@ class CompanionBrain:
         awareness: AwarenessService | None = None,
         needs: NeedsSystem | None = None,
         behavior: BehaviorEngine | None = None,
+        feeding: FeedingSystem | None = None,
         clock: Callable[[], float] = monotonic,
     ) -> None:
         self.awareness = awareness or AwarenessService()
         self.needs = needs or NeedsSystem()
         self.behavior = behavior or BehaviorEngine()
+        self.feeding = feeding or FeedingSystem()
         self.pet = PetState()
 
         self._clock = clock
@@ -60,6 +69,11 @@ class CompanionBrain:
             self.pet,
             dt,
         )
+        self.feeding.tick(
+            self.pet,
+            screen,
+            dt,
+        )
 
         decision = self.behavior.decide(
             self.pet,
@@ -74,6 +88,7 @@ class CompanionBrain:
             screen=screen,
             pet=self.pet,
             decision=decision,
+            feeding=self.feeding.status(self.pet),
         )
 
     def apply_interaction(
@@ -91,6 +106,21 @@ class CompanionBrain:
             effect,
         )
         self.needs.update_mood(self.pet)
+
+    def feed(
+        self,
+        food: FoodType,
+    ) -> FeedResult:
+        """
+        Called by whichever group owns the feeding UI. Returns whether buddy
+        ate, so the UI/voice can react to a refusal.
+        """
+        result = self.feeding.feed(
+            self.pet,
+            food,
+        )
+        self.needs.update_mood(self.pet)
+        return result
 
     def close(self) -> None:
         close = getattr(self.awareness, "close", None)

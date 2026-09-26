@@ -192,3 +192,34 @@ or:
 ```powershell
 py -m screen_behavior.demo_v05 --scenarios
 ```
+
+
+## Feeding system
+
+This subsystem owns the food *rules*; whoever owns the feeding UI decides when
+the user feeds buddy and calls:
+
+```python
+from screen_behavior.pet.feeding import FoodType
+
+result = brain.feed(FoodType.DRY)   # or FoodType.WET
+result.accepted  # False if buddy is full, or no wet food has been earned
+result.reason
+```
+
+- **Dry food:** fills hunger some, a little energy, no excitement.
+- **Wet food:** fills more hunger, more energy, big affection boost, and makes
+  buddy hyper (excited mood, prefers dance/wave/walk) for 45 seconds.
+- Wet food is earned: 1 per 25 minutes of coding/studying, max 3 stored.
+- Buddy refuses all food when hunger is 10 or below.
+
+`update.feeding` exposes `wet_food_available`, progress toward the next wet
+food, and `hyper_seconds_remaining`. Numbers live in `FeedingConfig` in
+`pet/feeding.py`.
+
+Try it:
+
+```bash
+python3 -m screen_behavior.demo_feeding              # interactive
+python3 -m screen_behavior.demo_feeding --scenarios  # scripted
+```
