@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import ctypes
 from ctypes import wintypes
-from pathlib import Path
 
 import psutil
 
-from awareness.models import ScreenContext, WindowInfo
+from screen_behavior.awareness.models import (
+    RawScreenSnapshot,
+    ScreenBounds,
+    WindowInfo,
+)
 
 
 user32 = ctypes.windll.user32
@@ -33,55 +36,30 @@ class LASTINPUTINFO(ctypes.Structure):
     ]
 
 
-class ScreenAwarenessService:
-    """
-    Local-only desktop context.
+class WindowsAwarenessBackend:
+    SM_XVIRTUALSCREEN = 76
+    SM_YVIRTUALSCREEN = 77
+    SM_CXVIRTUALSCREEN = 78
+    SM_CYVIRTUALSCREEN = 79
 
-    V0.1 intentionally DOES NOT:
-    - capture keystrokes
-    - read clipboard contents
-    - inspect passwords
-    - upload screenshots
+    def snapshot(self) -> RawScreenSnapshot:
+        x, y = self._cursor_position()
 
-    It only reads high-level desktop metadata such as:
-    active window, cursor position, and idle time.
-    """
-
-    CODING_APPS = {
-        "code.exe",
-        "pycharm64.exe",
-        "devenv.exe",
-        "idea64.exe",
-        "sublime_text.exe",
-    }
-
-    BROWSER_APPS = {
-        "chrome.exe",
-        "msedge.exe",
-        "firefox.exe",
-        "brave.exe",
-        "opera.exe",
-    }
-
-    GAME_APPS = {
-        "robloxplayerbeta.exe",
-        "steam.exe",
-    }
-
-    def snapshot(self) -> ScreenContext:
-        return ScreenContext(
-            cursor_x=self._cursor_position()[0],
-            cursor_y=self._cursor_position()[1],
+        return RawScreenSnapshot(
+            cursor_x=x,
+            cursor_y=y,
             idle_seconds=self._idle_seconds(),
             foreground=self._foreground_window(),
-            activity_kind=self._classify_activity(),
+            screen_bounds=self._screen_bounds(),
         )
 
     def _cursor_position(self) -> tuple[int, int]:
         point = POINT()
+
         if not user32.GetCursorPos(ctypes.byref(point)):
-            return (0, 0)
-        return (int(point.x), int(point.y))
+            return 0, 0
+
+        return int(point.x), int(point.y)
 
     def _idle_seconds(self) -> float:
         info = LASTINPUTINFO()
@@ -90,12 +68,27 @@ class ScreenAwarenessService:
         if not user32.GetLastInputInfo(ctypes.byref(info)):
             return 0.0
 
-        tick_count = kernel32.GetTickCount()
-        elapsed_ms = tick_count - info.dwTime
-        return max(0.0, elapsed_ms / 1000.0)
+        return max(
+            0.0,
+            (kernel32.GetTickCount() - info.dwTime) / 1000.0,
+        )
+
+    def _screen_bounds(self) -> ScreenBounds:
+        left = user32.GetSystemMetrics(self.SM_XVIRTUALSCREEN)
+        top = user32.GetSystemMetrics(self.SM_YVIRTUALSCREEN)
+        width = user32.GetSystemMetrics(self.SM_CXVIRTUALSCREEN)
+        height = user32.GetSystemMetrics(self.SM_CYVIRTUALSCREEN)
+
+        return ScreenBounds(
+            left=int(left),
+            top=int(top),
+            right=int(left + width),
+            bottom=int(top + height),
+        )
 
     def _foreground_window(self) -> WindowInfo:
         hwnd = user32.GetForegroundWindow()
+
         if not hwnd:
             return WindowInfo()
 
@@ -110,13 +103,19 @@ class ScreenAwarenessService:
         user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
 
         process_name = ""
+
         try:
             process_name = psutil.Process(pid.value).name()
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+        except (
+            psutil.NoSuchProcess,
+            psutil.AccessDenied,
+            psutil.ZombieProcess,
+        ):
             pass
 
         return WindowInfo(
             title=buffer.value,
+            app_name=process_name,
             process_name=process_name,
             pid=int(pid.value) if pid.value else None,
             left=int(rect.left),
@@ -124,23 +123,3 @@ class ScreenAwarenessService:
             right=int(rect.right),
             bottom=int(rect.bottom),
         )
-
-    def _classify_activity(self) -> str:
-        window = self._foreground_window()
-        process = window.process_name.lower()
-        title = window.title.lower()
-
-        if process in self.CODING_APPS:
-            return "coding"
-
-        if process in self.GAME_APPS:
-            return "gaming"
-
-        if process in self.BROWSER_APPS:
-            if "youtube" in title:
-                return "video"
-            if any(word in title for word in ("docs", "canvas", "blackboard", "school")):
-                return "school"
-            return "browsing"
-
-        return "other"
