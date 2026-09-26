@@ -208,6 +208,63 @@ py -m screen_behavior.demo_v05 --scenarios
 ```
 
 
+## V0.6 brain upgrades
+
+### Evidence decay (smoother activity detection)
+`awareness/evidence.py`. Activity scores are a time-weighted average over
+roughly the last 30–60 seconds (20s time constant), so a 5-second Alt-Tab from
+VS Code to Chrome stays "coding", while a minute in Chrome becomes "browsing".
+Coming back from idle is immediate. `screen.activity_scores` is the decayed
+evidence; `screen.leading_activity` is still the instant raw leader.
+
+### Unified user state
+`awareness/user_state.py` fuses activity, typing, mouse, idle time, and body
+presence into one stable state:
+
+| State | Meaning |
+|---|---|
+| `FOCUSED` | coding/studying with typing in the last ~90s |
+| `ACTIVE` | engaged but not working (gaming, browsing with input) |
+| `PASSIVE` | watching/reading with little input |
+| `DISTRACTED` | 3+ app switches in 2 min, or just drifted from work to leisure |
+| `IDLE` | no input for 60s+ |
+| `AWAY` | no input for 5 min+, or body tracking says not present |
+
+A new state must hold 5s before it's reported (AWAY/IDLE transitions are
+immediate). Read `update.screen.user_state` / `user_state_seconds`.
+Body tracking can call `brain.awareness.set_user_present(True/False/None)`.
+
+### Utility-scored behavior
+`pet/utility.py`. Every behavior gets a score each decision from needs, mood,
+user state, typing/mouse, distraction budget, and memory (recent behaviors
+×0.4). The highest eligible behavior wins; ones within 0.12 of the best are
+picked at random so buddy isn't robotic. Hard safety rules still come first
+(critically tired → sleep, critically lonely → ask for attention).
+`brain.behavior.score_all(pet, screen)` shows every score for debugging.
+
+Also fixed: sleep now continues until energy reaches 60 (it used to nap 20s
+and re-trigger all day), and play-dead ends on its own after 90s if nobody
+yells.
+
+### Simulation harness
+`simulation.py` runs the full pipeline on simulated time: hours in about a
+second.
+
+```bash
+python3 -m screen_behavior.simulation --list
+python3 -m screen_behavior.simulation --scenario workday
+python3 -m screen_behavior.simulation --scenario neglect --hours 8
+python3 -m screen_behavior.simulation --scenario workday --csv timeline.csv
+python3 -m screen_behavior.simulation --scenario workday --ignore-buddy
+```
+
+Scenarios: `workday`, `alt_tab`, `gaming_evening`, `app_hopping`, `neglect`.
+The report shows time per user state/activity/mood, distracting behaviors per
+hour by user state, behavior counts, repeats, attention requests, feeds,
+play-dead length, and need extremes. `tests/test_simulation.py` turns these
+into regression checks.
+
+
 ## Distraction budget
 
 Buddy has a `distraction_budget` (0–100). Distracting behaviors spend it:

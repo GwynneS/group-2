@@ -157,17 +157,20 @@ class BehaviorMemoryTests(unittest.TestCase):
 
     def test_engine_does_not_repeat_last_behavior(self):
         clock = FakeClock()
-        engine = BehaviorEngine(rng=ChoiceRng(Behavior.LOOK_AROUND), clock=clock)
+        engine = BehaviorEngine(
+            rng=ChoiceRng(Behavior.STUDY_WITH_USER),
+            clock=clock,
+        )
         pet = PetState(energy=100)
 
         first = engine.decide(pet, CODING)
-        self.assertEqual(first.behavior, Behavior.LOOK_AROUND)
+        self.assertEqual(first.behavior, Behavior.STUDY_WITH_USER)
 
         # Past commitment AND cooldown, so only memory can stop a repeat.
         clock.advance(60)
         second = engine.decide(pet, CODING)
 
-        self.assertNotEqual(second.behavior, Behavior.LOOK_AROUND)
+        self.assertNotEqual(second.behavior, Behavior.STUDY_WITH_USER)
 
     def test_ignored_buddy_sulks_instead_of_nagging(self):
         clock = FakeClock()
