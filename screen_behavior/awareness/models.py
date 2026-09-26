@@ -14,6 +14,13 @@ class ActivityType(StrEnum):
     OTHER = "other"
 
 
+class Shortcut(StrEnum):
+    """The only key combinations the keyboard monitor recognizes."""
+    COPY = "copy"
+    PASTE = "paste"
+    UNDO = "undo"
+
+
 @dataclass(slots=True)
 class ScreenBounds:
     left: int = 0
@@ -74,6 +81,12 @@ class KeyboardActivity:
     current_typing_burst_seconds: float = 0.0
     seconds_since_last_keypress: float | None = None
     current_no_typing_duration: float | None = None
+
+    # Copy/paste/undo only. Counts only go up, so a consumer can compare
+    # with the previous update to see exactly how many new ones happened.
+    last_shortcut: Shortcut | None = None
+    seconds_since_last_shortcut: float | None = None
+    shortcut_counts: dict[Shortcut, int] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
