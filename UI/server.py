@@ -9,8 +9,17 @@ Routes
     GET  /                              UI/index.html (and other files in UI/)
     GET  /extension/<file>              files from browser_extension/ (e.g. sprites.js)
     GET  /download/buddy-extension.zip  the extension, zipped fresh on each request
-    GET  /api/status                    {"ai": "claude" | "offline", "extension_version": "..."}
+    GET  /api/status                    {"ai", "brain": "running" | "offline", "extension_version"}
+    GET  /api/state                     the companion brain's presented state (see
+                                        screen_behavior/integration/presenter.py)
     POST /api/chat                      {"message", "character", "history"} -> {"reply", "source"}
+    POST /api/feed                      give buddy a fish -> {"accepted", "reason"}
+    POST /api/interact                  {"type": "pet" | "chat"} -> {"ok"}
+    POST /api/browser-activity          extension heartbeat (counts only) -> {"ok"}
+
+The companion brain (screen_behavior/) runs inside this server, so the UI,
+the extension and the brain share one process and one port. Start with
+--no-brain to serve the UI without it.
 
 Chat uses Claude when the `anthropic` package is installed and credentials are
 available (ANTHROPIC_API_KEY or an `ant auth login` profile). Otherwise the
@@ -21,11 +30,13 @@ Only binds to 127.0.0.1; the extension is allowed to call this port.
 
 from __future__ import annotations
 
+import argparse
 import io
 import json
 import mimetypes
 import random
 import re
+import sys
 import zipfile
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -35,7 +46,12 @@ HOST = "127.0.0.1"
 PORT = 8765  # keep in sync with APP_ORIGINS in browser_extension/background.js
 
 UI_DIR = Path(__file__).resolve().parent
-EXT_DIR = UI_DIR.parent / "browser_extension"
+ROOT_DIR = UI_DIR.parent
+EXT_DIR = ROOT_DIR / "browser_extension"
+
+# Let `python3 UI/server.py` import screen_behavior from the repo root.
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 MODEL = "claude-opus-5"
 MAX_MESSAGE_CHARS = 2000
@@ -201,8 +217,37 @@ def safe_path(root: Path, rel: str) -> Path | None:
     return None
 
 
+# --- Companion brain -----------------------------------------------------------
+
+def start_brain(enable_microphone: bool = False):
+    """Start the companion brain, or return None if it can't run here."""
+    try:
+        from screen_behavior.integration.brain import CompanionBrain
+        from screen_behavior.integration.runtime import BuddyRuntime
+
+        return BuddyRuntime(
+            lambda: CompanionBrain(enable_microphone=enable_microphone)
+        ).start()
+    except Exception as exc:  # unsupported OS, missing deps, permissions
+        print(f"[brain] not running ({exc.__class__.__name__}: {exc})")
+        return None
+
+
+def offline_brain_state(message: str = "Brain offline") -> dict:
+    try:
+        from screen_behavior.integration.presenter import offline_state
+        return offline_state(message)
+    except Exception:
+        return {"brain": "offline", "animation": "lounging", "message": message}
+
+
 class Handler(SimpleHTTPRequestHandler):
     server_version = "BuddyApp/1.0"
+
+    # Set by make_server(). `state_provider` overrides the runtime's state
+    # (used by animation_bridge.AnimationBridge for manual animations).
+    runtime = None
+    state_provider = None
 
     def do_GET(self) -> None:
         path = self.path.split("?", 1)[0]
@@ -210,8 +255,16 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/status":
             return self.send_json({
                 "ai": "claude" if claude.available else "offline",
+                "brain": "running" if self.runtime or self.state_provider else "offline",
                 "extension_version": extension_version(),
             })
+
+        if path == "/api/state":
+            if self.state_provider is not None:
+                return self.send_json(self.state_provider())
+            if self.runtime is not None:
+                return self.send_json(self.runtime.state())
+            return self.send_json(offline_brain_state())
 
         if path == "/download/buddy-extension.zip":
             data = build_extension_zip()
@@ -231,13 +284,19 @@ class Handler(SimpleHTTPRequestHandler):
         return self.send_file(safe_path(UI_DIR, path))
 
     def do_POST(self) -> None:
-        if self.path != "/api/chat":
+        path = self.path.split("?", 1)[0]
+        if path not in {"/api/chat", "/api/feed", "/api/interact", "/api/browser-activity"}:
             return self.send_error(HTTPStatus.NOT_FOUND)
         try:
             length = int(self.headers.get("Content-Length", "0"))
             body = json.loads(self.rfile.read(min(length, 200_000)) or b"{}")
+            if not isinstance(body, dict):
+                raise ValueError
         except ValueError:
             return self.send_json({"error": "Request body must be JSON."}, HTTPStatus.BAD_REQUEST)
+
+        if path != "/api/chat":
+            return self.brain_post(path, body)
 
         message = str(body.get("message", "")).strip()[:MAX_MESSAGE_CHARS]
         character = body.get("character") if body.get("character") in CHARACTERS else "girl"
@@ -245,10 +304,24 @@ class Handler(SimpleHTTPRequestHandler):
         if not message:
             return self.send_json({"error": "Message is empty."}, HTTPStatus.BAD_REQUEST)
 
+        if self.runtime is not None:
+            self.runtime.interact("chat")
+
         reply = claude.reply(character, history, message) if claude.available else None
         if reply:
             return self.send_json({"reply": reply, "source": "claude"})
         return self.send_json({"reply": offline_reply(character, message), "source": "offline"})
+
+    def brain_post(self, path: str, body: dict) -> None:
+        if self.runtime is None:
+            return self.send_json({"error": "Brain is not running."}, HTTPStatus.SERVICE_UNAVAILABLE)
+        if path == "/api/feed":
+            return self.send_json(self.runtime.feed())
+        if path == "/api/interact":
+            result = self.runtime.interact(str(body.get("type", "")))
+            status = HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST
+            return self.send_json(result, status)
+        return self.send_json(self.runtime.browser_activity(body))
 
     def send_file(self, file: Path | None) -> None:
         if file is None:
@@ -271,20 +344,47 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    QUIET_PATHS = ("/api/status", "/api/state", "/api/browser-activity")
+
     def log_message(self, fmt: str, *args) -> None:
-        if not self.path.startswith("/api/status"):
+        if not self.path.startswith(self.QUIET_PATHS):
             super().log_message(fmt, *args)
 
 
+def make_server(host: str = HOST, port: int = PORT, runtime=None, state_provider=None):
+    """Build the app server. Pass port=0 for a free port (tests, bridges)."""
+    handler = type(
+        "BoundHandler",
+        (Handler,),
+        {"runtime": runtime, "state_provider": staticmethod(state_provider) if state_provider else None},
+    )
+    server = ThreadingHTTPServer((host, port), handler)
+    server.daemon_threads = True
+    return server
+
+
 def main() -> None:
-    server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"Buddy app running at http://{HOST}:{PORT}  (AI: {'Claude' if claude.available else 'built-in replies'})")
+    parser = argparse.ArgumentParser(description="Buddy app server")
+    parser.add_argument("--port", type=int, default=PORT)
+    parser.add_argument("--no-brain", action="store_true", help="serve the UI without the companion brain")
+    parser.add_argument("--mic", action="store_true", help="enable loudness detection (yell to wake buddy)")
+    args = parser.parse_args()
+
+    runtime = None if args.no_brain else start_brain(enable_microphone=args.mic)
+    server = make_server(HOST, args.port, runtime=runtime)
+    print(
+        f"Buddy app running at http://{HOST}:{args.port}  "
+        f"(AI: {'Claude' if claude.available else 'built-in replies'}, "
+        f"brain: {'running' if runtime else 'off'})"
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         server.server_close()
+        if runtime is not None:
+            runtime.stop()
 
 
 if __name__ == "__main__":

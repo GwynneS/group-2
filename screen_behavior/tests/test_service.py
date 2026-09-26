@@ -126,10 +126,40 @@ class ServiceTests(unittest.TestCase):
             second.leading_activity,
             ActivityType.BROWSING,
         )
-        self.assertEqual(
-            second.pending_activity,
-            ActivityType.BROWSING,
+        # Evidence decay: one second of Chrome isn't even a challenger yet.
+        self.assertIsNone(second.pending_activity)
+
+    def test_brief_alt_tab_stays_coding_but_sustained_browsing_switches(self):
+        clock = FakeClock()
+        backend = FakeBackend()
+        keyboard = KeyboardActivityTracker(clock=clock)
+        keyboard.set_monitoring_available(True)
+
+        service = AwarenessService(
+            backend=backend,
+            activity_tracker=ActivityStabilityTracker(clock=clock),
+            keyboard_tracker=keyboard,
+            keyboard_monitor=FakeKeyboardMonitor(),
+            start_keyboard_monitor=False,
         )
+
+        # Code for a minute.
+        for _ in range(60):
+            service.snapshot()
+            clock.advance(1)
+
+        # Alt-Tab to Chrome for 5 seconds, then back.
+        backend.process_name = "chrome.exe"
+        backend.title = "Google Chrome"
+        for _ in range(5):
+            clock.advance(1)
+            self.assertEqual(service.snapshot().activity, ActivityType.CODING)
+
+        # Staying in Chrome for a minute does switch.
+        for _ in range(60):
+            clock.advance(1)
+            context = service.snapshot()
+        self.assertEqual(context.activity, ActivityType.BROWSING)
 
 
 if __name__ == "__main__":

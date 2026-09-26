@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Buddy Activity Tracker",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A pixel cat girl or cat boy buddy that hangs out in your browser and cheers you on.",
   "permissions": ["storage"],
   "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],

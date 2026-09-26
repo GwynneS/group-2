@@ -3,13 +3,21 @@
 // switching tabs, minimizing / leaving the browser window, navigating away,
 // or closing the tab.
 //
+// While the page is in view it also sends a small heartbeat every few
+// seconds (counts since the last heartbeat + host/title/scroll). The
+// background script forwards heartbeats to the companion brain in the Buddy
+// app so it knows what you're doing in the browser right now.
+//
 // Only counts are recorded — never the keys pressed or the text copied.
 
 (() => {
   const api = globalThis.browser ?? globalThis.chrome;
 
+  const HEARTBEAT_MS = 5000;
+
   let session = newSession();
   let activeSince = isInView() ? Date.now() : null;
+  let sent = zeroCounts();
 
   function newSession() {
     return {
@@ -25,6 +33,41 @@
       maxScrollPct: 0,
     };
   }
+
+  function zeroCounts() {
+    return { activeMs: 0, clicks: 0, keys: 0, copies: 0, pastes: 0 };
+  }
+
+  function currentActiveMs() {
+    return session.activeMs + (activeSince !== null ? Date.now() - activeSince : 0);
+  }
+
+  // Counts since the previous heartbeat. `left` tells the brain the user
+  // just switched away from this page.
+  function heartbeat(left = false) {
+    const now = { ...session, activeMs: currentActiveMs() };
+    const delta = {};
+    for (const key of Object.keys(sent)) delta[key] = Math.max(0, now[key] - sent[key]);
+    sent = { activeMs: now.activeMs, clicks: now.clicks, keys: now.keys, copies: now.copies, pastes: now.pastes };
+    try {
+      api.runtime.sendMessage({
+        type: "heartbeat",
+        data: {
+          host: location.hostname,
+          title: document.title,
+          maxScrollPct: session.maxScrollPct,
+          left,
+          ...delta,
+        },
+      });
+    } catch {
+      // Extension was reloaded or disabled; the page's old script is orphaned.
+    }
+  }
+
+  setInterval(() => {
+    if (isInView()) heartbeat();
+  }, HEARTBEAT_MS);
 
   function isInView() {
     return document.visibilityState === "visible" && document.hasFocus();
@@ -45,6 +88,8 @@
   // user left: "hidden", "blur", "navigate" or "close".
   function flush(reason) {
     pauseTimer();
+    heartbeat(true);
+    sent = zeroCounts();
     const hadActivity =
       session.activeMs > 0 || session.clicks || session.keys || session.copies || session.pastes;
     if (hadActivity) {

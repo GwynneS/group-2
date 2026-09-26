@@ -1,5 +1,7 @@
 // Receives session records from content.js, and headpats and chat messages
-// from buddy.js / bridge.js, and saves them to extension storage. Writes are
+// from buddy.js / bridge.js, and saves them to extension storage. Forwards
+// live activity heartbeats and headpats to the companion brain in the Buddy
+// app, and relays the brain's state back to the on-page buddies. Writes are
 // queued so records from several tabs closing at once don't overwrite each
 // other. Chat replies come from the local Buddy app (UI/server.py). Also keeps
 // the toolbar icon in sync with the chosen buddy.
@@ -25,6 +27,33 @@ const MAX_CHAT = 50;
 const APP_URL = "http://127.0.0.1:8765";
 
 let writeQueue = Promise.resolve();
+
+// --- Companion brain (runs inside the Buddy app) ----------------------------
+
+// Fire-and-forget: the app may not be running, and that's fine.
+function toBrain(path, body) {
+  return fetch(`${APP_URL}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).catch(() => {});
+}
+
+// Many tabs ask for the brain state; share one request every couple of seconds.
+let brainCache = { at: 0, data: null, pending: null };
+function brainState() {
+  if (Date.now() - brainCache.at < 2000) return Promise.resolve(brainCache.data);
+  if (brainCache.pending) return brainCache.pending;
+  brainCache.pending = fetch(`${APP_URL}/api/state`, { cache: "no-store" })
+    .then((res) => (res.ok ? res.json() : null))
+    .then((data) => (data?.brain === "offline" ? null : data))
+    .catch(() => null)
+    .then((data) => {
+      brainCache = { at: Date.now(), data, pending: null };
+      return data;
+    });
+  return brainCache.pending;
+}
 
 function enqueue(fn) {
   writeQueue = writeQueue.then(fn).catch((err) => console.error("Storage write failed", err));
@@ -97,8 +126,14 @@ async function chat(text) {
 api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "session" && msg.record) {
     saveRecord({ ...msg.record, tabId: sender.tab?.id });
+  } else if (msg?.type === "heartbeat" && msg.data) {
+    toBrain("/api/browser-activity", msg.data);
+  } else if (msg?.type === "brainState") {
+    brainState().then(sendResponse);
+    return true;
   } else if (msg?.type === "pet") {
     countPet();
+    toBrain("/api/interact", { type: "pet" });
   } else if (msg?.type === "chat") {
     chat(msg.text).then(sendResponse);
     return true; // keep the channel open for the async reply

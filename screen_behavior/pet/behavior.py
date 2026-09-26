@@ -5,16 +5,20 @@ from dataclasses import dataclass
 from time import monotonic
 from typing import Callable
 
-from screen_behavior.awareness.models import (
-    ActivityType,
-    ScreenContext,
-)
+from screen_behavior.awareness.models import ScreenContext
 from screen_behavior.pet.config import (
     BEHAVIOR_SPECS,
     BehaviorSpec,
 )
+from screen_behavior.pet.distraction import DistractionBudget
 from screen_behavior.pet.enums import BaseMood, Behavior, SpecialMood
+from screen_behavior.pet.memory import BehaviorMemory, MemorySnapshot
 from screen_behavior.pet.models import PetState
+from screen_behavior.pet.utility import (
+    ScoredBehavior,
+    build_context,
+    score_behavior,
+)
 
 
 @dataclass(slots=True)
@@ -36,6 +40,7 @@ class BehaviorDecision:
     distracting: bool
     commitment_remaining_seconds: float
     cooldown_remaining_seconds: float
+    distraction_budget: float = 100.0
 
 
 class BehaviorEngine:
@@ -52,10 +57,21 @@ class BehaviorEngine:
         rng: random.Random | None = None,
         clock: Callable[[], float] = monotonic,
         specs: dict[Behavior, BehaviorSpec] | None = None,
+        budget: DistractionBudget | None = None,
+        memory: BehaviorMemory | None = None,
+        near_best_margin: float = 0.12,
+        play_dead_max_seconds: float = 90.0,
+        sleep_until_energy: float = 60.0,
     ) -> None:
         self.rng = rng or random.Random()
         self.clock = clock
         self.specs = specs or BEHAVIOR_SPECS
+        self.budget = budget or DistractionBudget()
+        self.memory = memory or BehaviorMemory()
+        self._last_decide: float | None = None
+        self.near_best_margin = near_best_margin
+        self.play_dead_max_seconds = play_dead_max_seconds
+        self.sleep_until_energy = sleep_until_energy
 
         self._current_behavior: Behavior | None = None
         self._commitment_until: float = 0.0
@@ -70,6 +86,10 @@ class BehaviorEngine:
         signals = signals or ExternalSignals()
         now = self.clock()
 
+        if self._last_decide is not None:
+            self.budget.tick(screen, now - self._last_decide)
+        self._last_decide = now
+
         # Play-dead wake-up is intentionally a state transition, not a content event.
         if pet.play_dead_active and signals.loud_voice_detected:
             pet.play_dead_active = False
@@ -82,6 +102,22 @@ class BehaviorEngine:
                 force=True,
             )
 
+        # Nobody yelled: buddy gets bored of playing dead and gets up.
+        started = self._last_started.get(Behavior.PLAY_DEAD)
+        if (
+            pet.play_dead_active
+            and started is not None
+            and now - started >= self.play_dead_max_seconds
+        ):
+            pet.play_dead_active = False
+            return self._start(
+                pet,
+                Behavior.LOOK_AROUND,
+                "nobody came; got up from playing dead",
+                now,
+                force=True,
+            )
+
         if pet.play_dead_active:
             return self._hold_existing(
                 pet,
@@ -90,15 +126,38 @@ class BehaviorEngine:
                 now,
             )
 
+        # Once asleep, stay asleep until properly rested. Without this, buddy
+        # naps 20s, wakes at energy 19, drains, and naps again all day.
+        if (
+            self._current_behavior == Behavior.SLEEP
+            and pet.energy < self.sleep_until_energy
+        ):
+            return self._hold_existing(
+                pet,
+                Behavior.SLEEP,
+                "sleeping until rested",
+                now,
+            )
+
         urgent = self._urgent_behavior(pet)
 
         if urgent is not None:
+            reason = self._urgent_reason(urgent)
+
+            # Asked for attention and got ignored: sulk instead of nagging.
+            if (
+                urgent == Behavior.ASK_FOR_ATTENTION
+                and self.memory.recently_ignored(now)
+            ):
+                urgent = Behavior.SIT_DOWN
+                reason = "was ignored; sulking instead of asking again"
+
             # Urgent needs may interrupt a less important commitment.
             if self._current_behavior != urgent:
                 return self._start(
                     pet,
                     urgent,
-                    self._urgent_reason(urgent),
+                    reason,
                     now,
                     force=True,
                 )
@@ -148,103 +207,64 @@ class BehaviorEngine:
         screen: ScreenContext,
         now: float,
     ) -> tuple[Behavior, str]:
-        # High-energy affectionate behavior.
-        if (
-            pet.energy >= 95
-            and pet.affection >= 70
-            and self.rng.random() < 0.16
-            and self._available(Behavior.SEND_KISS, pet, now)
-        ):
-            return (
-                Behavior.SEND_KISS,
-                "energy and affection are both very high",
-            )
+        """
+        Utility scoring: every eligible behavior gets a score from needs,
+        mood, user context, distraction budget, and memory. The best wins.
 
-        # Hyper after wet food. Still gives a working user some room.
-        if pet.is_hyper:
-            hyper_chance = 0.3 if screen.user_is_working else 0.8
-            energetic = [
-                b for b in (
-                    Behavior.DANCE,
-                    Behavior.WAVE,
-                    Behavior.WALK_AROUND_CORNER,
-                )
-                if self._available(b, pet, now)
-            ]
+        Behaviors within `near_best_margin` of the top score count as
+        equally good, and one is picked at random, so buddy isn't robotic.
+        """
+        scored = self.score_all(pet, screen, now)
+        eligible = [s for s in scored if self._available(s.behavior, pet, now)]
 
-            if energetic and self.rng.random() < hyper_chance:
-                return (
-                    self.rng.choice(energetic),
-                    "buddy is hyper after wet food",
-                )
-
-        # Work-aware quiet behavior.
-        if screen.user_is_working:
-            preferred = [
-                Behavior.STUDY_WITH_USER,
-                Behavior.SIT_DOWN,
-                Behavior.FOLLOW_MOUSE_WITH_EYES,
-                Behavior.LOOK_AROUND,
-                Behavior.STRETCH,
-            ]
-
-            available = [
-                b for b in preferred
-                if self._available(b, pet, now)
-            ]
-
-            if available:
-                return (
-                    self.rng.choice(available),
-                    "user appears to be working; prefer low-distraction behavior",
-                )
-
-        # Passive watching for video/gaming.
-        if (
-            screen.activity in {ActivityType.GAMING, ActivityType.VIDEO}
-            and self._available(Behavior.WATCH_SCREEN, pet, now)
-            and self.rng.random() < 0.65
-        ):
-            return (
-                Behavior.WATCH_SCREEN,
-                f"user appears to be {screen.activity.value}",
-            )
-
-        # Rare play-dead behavior.
-        if (
-            pet.energy >= 45
-            and pet.attention >= 35
-            and self._available(Behavior.PLAY_DEAD, pet, now)
-            and self.rng.random() < 0.02
-        ):
-            return (
-                Behavior.PLAY_DEAD,
-                "rare autonomous play-dead behavior",
-            )
-
-        normal = [
-            Behavior.IDLE,
-            Behavior.LOOK_AROUND,
-            Behavior.SIT_DOWN,
-            Behavior.FOLLOW_MOUSE_WITH_EYES,
-            Behavior.WAVE,
-            Behavior.STRETCH,
-            Behavior.WALK_AROUND_CORNER,
-            Behavior.DANCE,
-        ]
-
-        available = [
-            b for b in normal
-            if self._available(b, pet, now)
-        ]
-
-        if not available:
+        if not eligible:
             return Behavior.IDLE, "no other autonomous behavior is available"
 
-        return (
-            self.rng.choice(available),
-            "normal autonomous behavior selection",
+        best = eligible[0].score
+        near_best = [
+            s for s in eligible
+            if s.score >= best - self.near_best_margin
+        ]
+        chosen_behavior = self.rng.choice([s.behavior for s in near_best])
+        chosen = next(s for s in near_best if s.behavior == chosen_behavior)
+
+        return chosen.behavior, chosen.reason
+
+    def score_all(
+        self,
+        pet: PetState,
+        screen: ScreenContext,
+        now: float | None = None,
+    ) -> list[ScoredBehavior]:
+        """All behaviors, highest utility first (ignores eligibility)."""
+        now = self.clock() if now is None else now
+        context = build_context(
+            pet,
+            screen,
+            budget_fraction=(
+                self.budget.value / self.budget.config.max_budget
+            ),
+            recently_ignored=self.memory.recently_ignored(now),
+            whim=self.rng.random(),
         )
+        scored = [
+            score_behavior(
+                behavior,
+                context,
+                distracting=self.specs[behavior].distracting,
+                repetitive=self.memory.is_repetitive(behavior),
+            )
+            for behavior in self.specs
+        ]
+        scored.sort(key=lambda s: s.score, reverse=True)
+        return scored
+
+    def record_interaction(self) -> None:
+        """The user interacted with buddy (petting, feeding, etc.)."""
+        self.memory.record_interaction(self.clock())
+
+    def memory_snapshot(self) -> MemorySnapshot:
+        return self.memory.snapshot(self.clock())
 
     def _available(
         self,
@@ -255,6 +275,9 @@ class BehaviorEngine:
         spec = self.specs[behavior]
 
         if pet.energy < spec.min_energy:
+            return False
+
+        if not self.budget.can_afford(behavior):
             return False
 
         last_started = self._last_started.get(behavior)
@@ -285,6 +308,8 @@ class BehaviorEngine:
             self._current_behavior = behavior
             self._commitment_until = now + spec.commitment_seconds
             self._last_started[behavior] = now
+            self.budget.spend(behavior)
+            self.memory.record_behavior(behavior, now)
 
             if behavior == Behavior.PLAY_DEAD:
                 pet.play_dead_active = True
@@ -340,4 +365,5 @@ class BehaviorEngine:
             distracting=spec.distracting,
             commitment_remaining_seconds=commitment_remaining,
             cooldown_remaining_seconds=cooldown_remaining,
+            distraction_budget=self.budget.value,
         )
