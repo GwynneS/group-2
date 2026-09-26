@@ -7,7 +7,61 @@ from threading import Lock
 from time import monotonic
 from typing import Callable
 
-from screen_behavior.awareness.models import KeyboardActivity
+from screen_behavior.awareness.models import KeyboardActivity, Shortcut
+
+
+_LETTER_TO_SHORTCUT = {
+    "c": Shortcut.COPY,
+    "v": Shortcut.PASTE,
+    "z": Shortcut.UNDO,
+}
+
+# Physical key codes, so detection works even when Ctrl turns 'c' into '\x03'.
+_MAC_VK = {8: "c", 9: "v", 6: "z"}              # kVK_ANSI_C / V / Z
+_WINDOWS_VK = {0x43: "c", 0x56: "v", 0x5A: "z"}  # VK_C / VK_V / VK_Z
+
+
+def modifier_name(key) -> str | None:
+    """'ctrl' / 'cmd' for modifier keys, else None."""
+    name = getattr(key, "name", None) or ""
+    if name.startswith("ctrl"):
+        return "ctrl"
+    if name.startswith("cmd"):
+        return "cmd"
+    return None
+
+
+def shortcut_for_key(
+    key,
+    modifiers_held: set[str],
+    is_mac: bool,
+) -> Shortcut | None:
+    """
+    Map a keypress to copy/paste/undo, or None.
+
+    Only C, V, Z while Ctrl or Cmd is held are recognized. Every other key
+    returns None and its identity is discarded by the caller.
+    """
+    if not modifiers_held:
+        return None
+
+    vk_map = _MAC_VK if is_mac else _WINDOWS_VK
+    vk = getattr(key, "vk", None)
+    if vk in vk_map:
+        return _LETTER_TO_SHORTCUT[vk_map[vk]]
+
+    char = getattr(key, "char", None)
+    if not char:
+        return None
+    char = char.lower()
+    if char in _LETTER_TO_SHORTCUT:
+        return _LETTER_TO_SHORTCUT[char]
+
+    # Ctrl+letter often arrives as a control character (\x03 = Ctrl+C).
+    code = ord(char[0])
+    if 1 <= code <= 26:
+        return _LETTER_TO_SHORTCUT.get(chr(code + 96))
+    return None
 
 
 class KeyboardActivityTracker:
@@ -17,6 +71,9 @@ class KeyboardActivityTracker:
     `record_keypress()` receives no key identity. It records only a timestamp.
     This prevents the public model from ever containing typed characters,
     key names, words, passwords, or key sequences.
+
+    The one exception is `record_shortcut()`, which receives only
+    copy/paste/undo, never the underlying key.
     """
 
     def __init__(
@@ -32,6 +89,9 @@ class KeyboardActivityTracker:
         self._last_keypress: float | None = None
         self._burst_started_at: float | None = None
         self._monitoring_available = False
+        self._last_shortcut: Shortcut | None = None
+        self._last_shortcut_at: float | None = None
+        self._shortcut_counts: dict[Shortcut, int] = {}
         self._lock = Lock()
 
     def set_monitoring_available(self, value: bool) -> None:
@@ -50,6 +110,15 @@ class KeyboardActivityTracker:
             self._last_keypress = now
             self._timestamps.append(now)
             self._prune(now)
+
+    def record_shortcut(self, shortcut: Shortcut) -> None:
+        now = self._clock()
+        with self._lock:
+            self._last_shortcut = shortcut
+            self._last_shortcut_at = now
+            self._shortcut_counts[shortcut] = (
+                self._shortcut_counts.get(shortcut, 0) + 1
+            )
 
     def snapshot(self) -> KeyboardActivity:
         now = self._clock()
@@ -91,6 +160,12 @@ class KeyboardActivityTracker:
                 current_typing_burst_seconds=burst_duration,
                 seconds_since_last_keypress=seconds_since,
                 current_no_typing_duration=no_typing_duration,
+                last_shortcut=self._last_shortcut,
+                seconds_since_last_shortcut=(
+                    None if self._last_shortcut_at is None
+                    else max(0.0, now - self._last_shortcut_at)
+                ),
+                shortcut_counts=dict(self._shortcut_counts),
             )
 
     def _prune(self, now: float) -> None:
@@ -103,13 +178,15 @@ class GlobalKeyboardMonitor:
     """
     Cross-platform listener using pynput.
 
-    The callback intentionally ignores the key object and only calls
-    `tracker.record_keypress()`.
+    Every keypress becomes `tracker.record_keypress()` with no key identity.
+    Ctrl/Cmd + C, V, Z additionally becomes `tracker.record_shortcut()`.
     """
 
     def __init__(self, tracker: KeyboardActivityTracker | None = None) -> None:
         self.tracker = tracker or KeyboardActivityTracker()
         self._listener = None
+        self._modifiers_held: set[str] = set()
+        self._is_mac = platform.system() == "Darwin"
 
     def start(self) -> None:
         if platform.system() == "Darwin" and not self._mac_permission_looks_available():
@@ -119,11 +196,32 @@ class GlobalKeyboardMonitor:
         try:
             from pynput import keyboard
 
-            def on_press(_key) -> None:
-                # Discard the key identity immediately.
+            def on_press(key) -> None:
                 self.tracker.record_keypress()
 
-            self._listener = keyboard.Listener(on_press=on_press)
+                modifier = modifier_name(key)
+                if modifier is not None:
+                    self._modifiers_held.add(modifier)
+                    return
+
+                shortcut = shortcut_for_key(
+                    key,
+                    self._modifiers_held,
+                    self._is_mac,
+                )
+                if shortcut is not None:
+                    self.tracker.record_shortcut(shortcut)
+                # Key identity is discarded here.
+
+            def on_release(key) -> None:
+                modifier = modifier_name(key)
+                if modifier is not None:
+                    self._modifiers_held.discard(modifier)
+
+            self._listener = keyboard.Listener(
+                on_press=on_press,
+                on_release=on_release,
+            )
             self._listener.daemon = True
             self._listener.start()
             self.tracker.set_monitoring_available(True)
@@ -145,11 +243,15 @@ class GlobalKeyboardMonitor:
         If the API is unavailable, let pynput attempt normal startup.
         """
         try:
+            # AXIsProcessTrusted lives in ApplicationServices, not Quartz.
+            import ApplicationServices
             import Quartz
 
-            checker = getattr(Quartz, "AXIsProcessTrusted", None)
-            if checker is None:
-                return True
-            return bool(checker())
+            listen_check = getattr(Quartz, "CGPreflightListenEventAccess", None)
+            input_monitoring = bool(listen_check()) if listen_check else False
+            return (
+                bool(ApplicationServices.AXIsProcessTrusted())
+                or input_monitoring
+            )
         except Exception:
             return True

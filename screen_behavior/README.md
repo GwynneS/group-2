@@ -38,6 +38,20 @@ is immediately converted to a timestamp/counter and the key identity is discarde
 
 There is no key log, text reconstruction, clipboard monitoring, or password capture.
 
+**One narrow exception: copy / paste / undo.** Ctrl or Cmd + C, V, Z are
+recognized and reported only as `copy` / `paste` / `undo`. No other key or
+combination is ever identified, and the clipboard contents are never read.
+
+```python
+kb = update.screen.keyboard
+kb.last_shortcut                 # Shortcut.COPY / PASTE / UNDO, or None
+kb.seconds_since_last_shortcut
+kb.shortcut_counts               # {Shortcut.PASTE: 3, ...}; only goes up
+```
+
+To react to each new shortcut exactly once, compare `shortcut_counts` with the
+previous update.
+
 ## Install
 
 ### Windows
