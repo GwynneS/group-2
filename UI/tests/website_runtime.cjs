@@ -12,7 +12,7 @@ const STREAM = [
   {type:"text",text:"there!"},
   {type:"done",reply:"Hi there!",source:"claude",thought:"They said hi.",learned:["Says hi a lot"]},
 ].map(e=>JSON.stringify(e)+"\n").join("");
-function page(withExtension = false, initial = {}, backgroundVoice = true) {
+function page(withExtension = false, initial = {}, backgroundVoice = true, globals = {}) {
   let clock = 100000, voiceId = 0, speech = null;
   const requests = [], audio = [], messages = [], events = {}, docEvents = {}, elements = new Map();
   const storage = {"buddy-app":JSON.stringify({prefs:{character:"girl",visible:true}}), ...initial};
@@ -53,6 +53,7 @@ function page(withExtension = false, initial = {}, backgroundVoice = true) {
       else if(url==="/api/voice/claim") data={claimed:true};
       else if(url==="/api/interact") data={accepted:true};
       else if(url==="/api/presence") data=state();
+      else if(url==="/api/body") data={...state(),camera:{status:"unavailable",error:""},body:null};
       else if(url==="/api/memory"||url==="/api/memory/clear") data={notes:[]};
       else if(url==="/api/chat/stream"){
         // Split mid-line: the page must buffer partial lines.
@@ -62,6 +63,7 @@ function page(withExtension = false, initial = {}, backgroundVoice = true) {
       else throw new Error("Unexpected request "+url);
       return {ok:true,json:async()=>data};
     },
+    ...globals,
   };
   sandbox.window=sandbox;
   let pageWindow;
@@ -89,6 +91,58 @@ function page(withExtension = false, initial = {}, backgroundVoice = true) {
     fire:async (type,e={})=>{for(const fn of docEvents[type]??[])await fn(e);await settle();},
     emit:async (id,type,e={})=>{for(const fn of el(id).listeners[type]??[])await fn(e);await drain();},
     speech:()=>speech};
+}
+// Stands in for body.js: a page webcam the test switches and feeds by hand.
+function fakeBody(status = "off", error = "") {
+  const fake = {};
+  fake.createCamera = (options) => {
+    fake.options = options;
+    return fake.camera = {status, error, snapshot:null,
+      async start(){fake.camera.status="on";options.onChange();},
+      stop(){fake.camera.status="off";fake.camera.snapshot=null;options.onChange();}};
+  };
+  return fake;
+}
+// A server with no webcam of its own (Vercel): the page tracks with its own.
+async function pageCamera(){
+  const body=fakeBody();
+  const p=page(false,{},true,{BuddyBody:body});await settle();
+  const noCamera={...p.state(),camera:{status:"unavailable",error:""},body:null};
+  p.onState(noCamera);
+  assert.equal(p.el("camera-toggle").hidden,false,"a server without a camera offers the page's own");
+  await p.click("camera-toggle");
+  assert.equal(body.camera.status,"on");
+  assert.equal(p.el("camera-view").hidden,false);
+  assert.equal(p.el("camera-view").dataset.preview,"shown");
+  assert.equal(p.el("camera-feed").getAttribute("src"),null,"no server stream for the page's camera");
+  const sent=()=>p.requests.filter(r=>r.url==="/api/body");
+  const seated={state:"at_desk",present:true,event:null,away_seconds:0,hand_raised:false,leaning_in:false};
+  body.camera.snapshot=seated;
+  await body.options.onSnapshot(seated);
+  await body.options.onSnapshot(seated);
+  assert.equal(sent().length,1,"unchanged signals aren't re-sent every frame");
+  await body.options.onSnapshot({...seated,event:"user_arrived"});
+  assert.equal(sent().length,2,"events are sent at once");
+  p.advance(2500);await body.options.onSnapshot(seated);
+  assert.equal(sent().length,3,"unchanged signals are re-sent so the server knows the camera is live");
+  assert.deepEqual(sent()[0].body,seated);
+  assert.equal(p.el("body-status").textContent,"At your desk");
+  await p.click("camera-preview-toggle");
+  assert.equal(p.el("camera-view").dataset.preview,"hidden");
+  assert.equal(body.camera.status,"on","hiding the preview keeps tracking");
+  await p.click("camera-toggle");
+  assert.equal(body.camera.status,"off");
+  assert.deepEqual(sent().at(-1).body,{camera:"off"});
+  assert.equal(p.el("camera-view").hidden,true);
+
+  const insecure=page(false,{},true,{BuddyBody:fakeBody("unsupported","Needs https")});await settle();
+  insecure.onState({...insecure.state(),camera:{status:"unavailable",error:""},body:null});
+  assert.equal(insecure.el("camera-toggle").hidden,true);
+  assert.equal(insecure.el("camera-note").textContent,"Needs https");
+
+  const local=page(false,{},true,{BuddyBody:fakeBody()});await settle();local.onState(local.state());
+  assert.ok(local.el("camera-feed").src.startsWith("/api/camera.mjpg"),"a server with a camera keeps using it");
+  assert.equal(local.el("camera-view").hidden,true);
 }
 // Type a message, then delete the chat through the dialog.
 async function chatAndDelete(p, alsoMemories){
@@ -153,7 +207,8 @@ async function main(){
   assert.deepEqual(Array.from(recorded.entries,m=>m.text),["hi","Hi there!"],"streamed replies join the shared history");
   assert.ok(shared.messages.some(m=>m.type==="clearChat"),"deleting clears the extension's shared history");
   assert.ok(!shared.requests.some(r=>r.url==="/api/memory/clear"),"memories stay unless asked");
+  await pageCamera();
   console.log(JSON.stringify({previewIndependent:true,remembered:true,immediateShortcuts:true,bridgeDelegation:true,
-    chatStreaming:true,deleteChat:true}));
+    chatStreaming:true,deleteChat:true,pageCamera:true}));
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

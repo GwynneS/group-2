@@ -112,7 +112,14 @@ watching; keep the original Buddy terminal running.
 
 Get the first two stages working before adding camera dependencies.
 
-If Buddy reports missing camera packages, stop it and run the existing
+Without the camera packages (and on the Vercel site), **Start camera** uses
+the webcam in your browser instead: the page tracks you itself, and only
+whether you're at your desk reaches the server, never video. It needs the page
+open at `http://127.0.0.1:8765` or over `https://`, and tracking slows down
+while the tab is in the background. Moving the webcam isn't detected in this
+mode.
+
+For tracking that keeps running with the website closed, stop Buddy and run the existing
 project requirements from inside **group-2**, using the same Python:
 
 ```powershell

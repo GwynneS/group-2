@@ -69,6 +69,10 @@
                 <h2>Camera</h2>
                 <div class="stage video-stage">
                     <img id="camera-feed" alt="Your webcam, with the body tracking skeleton" hidden>
+                    <div id="camera-view" class="camera-view" hidden>
+                        <video id="camera-video" muted playsinline aria-label="Your webcam, with the body tracking skeleton"></video>
+                        <canvas id="camera-skeleton" aria-hidden="true"></canvas>
+                    </div>
                     <span id="camera-badge" class="live-badge" aria-hidden="true" hidden>LIVE</span>
                     <p id="camera-note">Turn on the camera and your buddy notices when you sit down, take a break, lean in or wave.</p>
                     <p id="body-status" class="body-status" role="status" hidden></p>
@@ -129,6 +133,7 @@
 
     <script src="/extension/characters.js"></script>
     <script src="animation.js"></script>
+    <script src="body.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

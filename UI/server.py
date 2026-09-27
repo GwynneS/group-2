@@ -27,6 +27,10 @@ Routes
     POST /api/voice/claim               one playback owner per live voice event
     POST /api/interact                  {"action": pet|poke|chat|copy_paste|feed, "food"?} -> result + state
     POST /api/camera                    {"on": bool} -> start/stop body tracking
+    POST /api/body                      the website's own camera tracking (UI/body.js), when
+                                        this computer has none: {"state", "present", "event",
+                                        "away_seconds", "hand_raised", "leaning_in"} or
+                                        {"camera": "off"} -> state (409 while /api/camera is on)
     POST /api/browser-activity          extension heartbeat every 5s: counts only (clicks,
                                         keys, copies, pastes, scroll, active time) + tab
                                         title/host -> {"ok"}
@@ -619,6 +623,10 @@ class Handler(SimpleHTTPRequestHandler):
             companion.tick()
             return self.send_json(companion.state())
 
+        if self.path == "/api/body":
+            used = companion.record_browser_body(body)
+            return self.send_json(companion.state(), HTTPStatus.OK if used else HTTPStatus.CONFLICT)
+
         return self.send_error(HTTPStatus.NOT_FOUND)
 
     def chat_args(self, body: dict) -> tuple[str, str, list, str]:
@@ -736,7 +744,8 @@ class Handler(SimpleHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
         # The website and extension poll these constantly; keep the log readable.
         if not self.path.startswith(
-            ("/api/status", "/api/state", "/api/presence", "/api/camera.mjpg", "/api/browser-activity")
+            ("/api/status", "/api/state", "/api/presence", "/api/camera.mjpg", "/api/browser-activity",
+             "/api/body")
         ):
             super().log_message(fmt, *args)
 

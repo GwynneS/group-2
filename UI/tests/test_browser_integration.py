@@ -353,7 +353,12 @@ class VoiceAndPreviewRuntimeTests(unittest.TestCase):
         self.assertTrue(self.run_runtime("voice_runtime.cjs", "firefox")["singlePlayer"])
 
     def test_website_preview_and_voice_controls_with_mocked_dom(self):
-        self.assertTrue(self.run_runtime("website_runtime.cjs")["previewIndependent"])
+        result = self.run_runtime("website_runtime.cjs")
+        self.assertTrue(result["previewIndependent"])
+        self.assertTrue(result["pageCamera"])
+
+    def test_website_body_tracking_follows_tracking_py(self):
+        self.assertTrue(self.run_runtime("body_runtime.cjs")["rules"])
 
 
 if __name__ == "__main__":

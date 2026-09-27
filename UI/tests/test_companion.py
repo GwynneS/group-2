@@ -144,6 +144,43 @@ class CompanionServiceTests(unittest.TestCase):
         self.service._on_body(body(present=False, away_seconds=30))
         self.assertEqual(self.voice(), first)  # not said again while still gone
 
+    def website_body(self, **fields):
+        return self.service.record_browser_body({"state": "at_desk", "present": True, **fields})
+
+    def test_website_camera_reacts_like_this_computers_camera(self):
+        self.assertTrue(self.website_body(state="getting_up", event="user_getting_up"))
+        self.assertEqual(self.voice()[1], "onGetup")
+        self.assertEqual(self.service.state()["body"]["state"], "getting_up")
+        self.website_body(present=False, away_seconds=21)
+        self.assertEqual(self.voice()[1], "notInFrame")
+
+    def test_website_camera_presence_goes_stale_and_off(self):
+        self.website_body()
+        self.service.tick()
+        self.assertIs(self.service._update.screen.user_present, True)
+        self.service._body_at -= companion_module.BODY_STALE_SECONDS + 1
+        self.assertIsNone(self.service.state()["body"])  # the page stopped reporting
+
+        self.website_body()
+        self.assertTrue(self.service.record_browser_body({"camera": "off"}))
+        self.assertIsNone(self.service.state()["body"])
+        self.assertIsNone(self.service._update.screen.user_present)
+
+    def test_website_camera_input_is_checked(self):
+        self.website_body(state="dancing", present="yes", event="user_exploded",
+                          away_seconds=float("inf"), hand_raised=1, leaning_in="true")
+        got = self.service._body
+        self.assertEqual((got.state, got.present, got.event, got.away_seconds, got.hand_raised, got.leaning_in),
+                         ("away", False, None, 0.0, False, False))
+        self.website_body(state="away")
+        self.assertEqual(self.service._body.state, "at_desk")  # present wins
+
+    def test_website_camera_is_ignored_while_this_computers_camera_runs(self):
+        self.service.camera.status = "on"
+        self.assertFalse(self.website_body(event="user_returned"))
+        self.assertIsNone(self.service._reaction)
+        self.assertFalse(self.service.record_browser_body({"camera": "off"}))
+
     def test_copy_paste_undo_in_any_app_say_their_lines(self):
         keys = self.service.brain.awareness.keyboard_tracker
         keys.set_monitoring_available(True)
@@ -287,6 +324,14 @@ class ServerRouteTests(unittest.TestCase):
         status, data = self.post("/api/camera", {"on": True})
         self.assertEqual(status, 409)
         self.assertIn("pip install", data["error"])
+
+    def test_body_route_takes_the_websites_camera(self):
+        status, data = self.post("/api/body", {"state": "at_desk", "present": True, "leaning_in": True})
+        self.assertEqual(status, 200)
+        self.assertIs(data["body"]["leaning_in"], True)
+        status, data = self.post("/api/body", {"camera": "off"})
+        self.assertEqual(status, 200)
+        self.assertIsNone(data["body"])
 
     def test_every_voice_trigger_has_lines_for_both_buddies(self):
         _, raw = self.get("/api/voices")

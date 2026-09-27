@@ -5,6 +5,8 @@ Connects the project's pieces into one live state:
     screen_behavior/      the pet's brain: needs, mood, behavior, feeding
     BodyTracking/         optional webcam body tracking (presence, getting up,
                           raised hand, leaning in), plus the live video feed
+    UI/body.js            the same tracking in the website, when this computer
+                          has no camera to use (e.g. on Vercel)
     animation_bridge.py   brain update -> emotion shown on screen
 
 and turns what the user does (headpats, pokes, feeding, chatting, browsing)
@@ -135,6 +137,21 @@ class Reaction:
     id: int = 0
 
 
+@dataclass
+class BrowserBody:
+    """A body-tracking result from the website's webcam (UI/body.js runs
+    BodyTracking/tracking.py's rules in the browser): the fields of
+    tracking.BodySnapshot the companion reads."""
+
+    state: str  # "at_desk" | "getting_up" | "away"
+    present: bool
+    event: str | None
+    away_seconds: float
+    hand_raised: bool
+    leaning_in: bool
+    camera_moving: bool = False  # body.js can't tell (see its header)
+
+
 def module_available(*names: str) -> bool:
     return all(importlib.util.find_spec(n) is not None for n in names)
 
@@ -261,6 +278,7 @@ class CompanionService:
         self._voice_claim = None
         self._body = None
         self._body_at: float | None = None
+        self._body_source = "native"  # or "browser": record_browser_body
         self._last_hand_raise = 0.0
         self._last_lean_in = 0.0
         self._hand_was_raised = False
@@ -308,9 +326,10 @@ class CompanionService:
             self._voice_for_screen(self._update.screen, now)
 
     def _fresh_body(self, now: float):
-        """Only a live, stable camera can provide physical-presence evidence."""
+        """Only a live, stable camera can provide physical-presence evidence:
+        this computer's while it runs, or the website's while it keeps reporting."""
         if (
-            self.camera.status == "on"
+            (self.camera.status == "on" or self._body_source == "browser")
             and self._body is not None
             and self._body_at is not None
             and 0 <= now - self._body_at <= BODY_STALE_SECONDS
@@ -433,12 +452,46 @@ class CompanionService:
             self._update_at, self._updated_at = time.monotonic(), time.time()
             return {"accepted": True, "message": action}
 
-    def _on_body(self, snap) -> None:
-        """Called from the camera thread for every processed frame."""
+    def record_browser_body(self, payload: dict) -> bool:
+        """A body-tracking result from the website's webcam (UI/body.js), or
+        {"camera": "off"} when the page stops it. Only these signals arrive,
+        never video. Ignored (returns False) while this computer's own camera runs."""
+        if self.camera.status in ("on", "starting"):
+            return False
+        if payload.get("camera") == "off":
+            with self._lock:
+                if self._body_source == "browser":
+                    self._body = self._body_at = None
+            self.tick()
+            return True
+        present = payload.get("present") is True
+        state = payload.get("state")
+        if not present:
+            state = "away"
+        elif state not in ("at_desk", "getting_up"):
+            state = "at_desk"
+        event = payload.get("event")
+        away = payload.get("away_seconds")
+        if isinstance(away, bool) or not isinstance(away, (int, float)) or not math.isfinite(away):
+            away = 0.0
+        self._on_body(BrowserBody(
+            state=state,
+            present=present,
+            event=event if event in BODY_REACTIONS else None,
+            away_seconds=min(max(float(away), 0.0), 24 * 3600.0),
+            hand_raised=payload.get("hand_raised") is True,
+            leaning_in=payload.get("leaning_in") is True,
+        ), source="browser")
+        return True
+
+    def _on_body(self, snap, source: str = "native") -> None:
+        """Called for every processed frame: from the camera thread, or with
+        source="browser" from record_browser_body."""
         now = time.monotonic()
         with self._lock:
             self._body = snap
             self._body_at = now
+            self._body_source = source
             if snap.camera_moving:
                 self.brain.awareness.set_user_present(None)
                 return
@@ -541,7 +594,6 @@ class CompanionService:
                 voice = {"id": reaction.id, "trigger": reaction.voice, "seconds": round(reaction.until - now, 2),
                          "key": f"{self._voice_session}:{reaction.id}"}
 
-        camera_on = self.camera.status == "on"
         return {
             **present(update),
             "updated_at": updated_at,
@@ -580,5 +632,5 @@ class CompanionService:
                 "present": body.present,
                 "hand_raised": body.hand_raised,
                 "leaning_in": body.leaning_in,
-            } if (body and camera_on) else None,
+            } if body else None,  # _fresh_body: only from a live camera
         }

@@ -45,6 +45,9 @@
   const needsBox = $("needs");
   const moodLine = $("mood-line");
   const cameraFeed = $("camera-feed");
+  const cameraView = $("camera-view");
+  const cameraVideo = $("camera-video");
+  const cameraSkeleton = $("camera-skeleton");
   const cameraBadge = $("camera-badge");
   const cameraNote = $("camera-note");
   const cameraToggle = $("camera-toggle");
@@ -424,19 +427,72 @@
   }
 
   // --- Camera (BodyTracking) -------------------------------------------------
+  //
+  // The app server's webcam when it has one: companion.py runs
+  // BodyTracking/tracking.py and streams /api/camera.mjpg. Otherwise (on
+  // Vercel, or without OpenCV/MediaPipe) this page's webcam through body.js:
+  // the video stays here and only the signals go to POST /api/body.
 
   const BODY_WORDS = { at_desk: "At your desk", getting_up: "Getting up", away: "Away" };
   const PREVIEW_KEY = "buddy-camera-preview";
+  // Unchanged signals are re-sent this often, well within the server's
+  // BODY_STALE_SECONDS (5s), so it knows the camera is still live.
+  const BODY_REPORT_MS = 2000;
   let previewVisible = true;
   try { previewVisible = localStorage.getItem(PREVIEW_KEY) !== "hidden"; } catch {}
+  const pageCamera = globalThis.BuddyBody?.createCamera({
+    video: cameraVideo, canvas: cameraSkeleton, onSnapshot: reportBody, onChange: () => renderCamera(companion),
+  });
+  let bodyReported = { key: "", at: 0 };
+  let bodyReporting = false;
+
+  // The server's camera, or this page's while it runs or when the server has none.
+  function cameraInfo(state) {
+    const server = state?.camera ?? { status: "unavailable", error: "" };
+    const pageOn = pageCamera?.status === "on" || pageCamera?.status === "starting";
+    if (pageOn || (pageCamera && state && server.status === "unavailable")) {
+      return { status: pageCamera.status, error: pageCamera.error, inPage: true };
+    }
+    return { ...server, inPage: false };
+  }
+
+  // Each frame's signals from body.js. Events go at once; otherwise only
+  // changes, plus the same signals every BODY_REPORT_MS.
+  async function reportBody(signals) {
+    const key = [signals.state, signals.present, signals.hand_raised, signals.leaning_in].join();
+    const now = Date.now();
+    if (!signals.event && (bodyReporting || (key === bodyReported.key && now - bodyReported.at < BODY_REPORT_MS))) return;
+    bodyReported = { key, at: now };
+    bodyReporting = true;
+    try {
+      const res = await fetch("/api/body", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(signals) });
+      if (res.ok) renderCompanion(await res.json());
+    } catch {
+      // Offline for now; the next change or report tries again.
+    } finally {
+      bodyReporting = false;
+    }
+  }
+
+  function reportBodyOff() {
+    bodyReported = { key: "", at: 0 };
+    fetch("/api/body", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ camera: "off" }) })
+      .then((res) => res.ok && res.json()).then((state) => state && renderCompanion(state)).catch(() => {});
+  }
 
   function renderCamera(state) {
-    const camera = state?.camera ?? { status: "unavailable", error: "" };
+    const camera = cameraInfo(state);
     const on = camera.status === "on" || camera.status === "starting";
     const showPreview = on && previewVisible && document.visibilityState === "visible";
-    if (showPreview && !cameraFeed.getAttribute("src")) cameraFeed.src = `/api/camera.mjpg?${Date.now()}`;
-    if (!showPreview && cameraFeed.getAttribute("src")) cameraFeed.removeAttribute("src");
-    cameraFeed.hidden = !showPreview;
+    const showFeed = showPreview && !camera.inPage;
+    if (showFeed && !cameraFeed.getAttribute("src")) cameraFeed.src = `/api/camera.mjpg?${Date.now()}`;
+    if (!showFeed && cameraFeed.getAttribute("src")) cameraFeed.removeAttribute("src");
+    cameraFeed.hidden = !showFeed;
+    // Off-screen rather than hidden while the page camera runs (see colorScheme.css).
+    cameraView.hidden = !(on && camera.inPage);
+    cameraView.dataset.preview = showPreview ? "shown" : "hidden";
     cameraBadge.hidden = camera.status !== "on" || !showPreview;
     cameraPreviewToggle.hidden = !on;
     cameraPreviewToggle.textContent = previewVisible ? "Hide preview" : "Show preview";
@@ -445,23 +501,25 @@
       ? `Camera tracking on${showPreview ? "" : " · preview hidden"}`
       : camera.status === "starting" ? "Camera tracking starting…" : "Camera tracking off";
 
-    cameraToggle.hidden = !state || camera.status === "unavailable";
+    cameraToggle.hidden = !(state || camera.inPage) || camera.status === "unavailable" || camera.status === "unsupported";
     cameraToggle.textContent = on ? "Stop camera" : "Start camera";
     cameraToggle.disabled = camera.status === "starting";
 
-    if (!state) {
+    if (!state && !camera.inPage) {
       cameraNote.textContent = "Start the app with python3 UI/server.py to use the camera.";
     } else if (camera.status === "unavailable") {
       cameraNote.textContent = "Body tracking needs OpenCV and MediaPipe. Install them with pip install -r requirements.txt, then restart the app.";
-    } else if (camera.status === "error") {
+    } else if (camera.status === "error" || camera.status === "unsupported") {
       cameraNote.textContent = camera.error;
     } else if (!on) {
       cameraNote.textContent = "Turn on the camera and your buddy notices when you sit down, take a break, lean in or wave.";
+    } else if (camera.inPage) {
+      cameraNote.textContent = "Your video stays in this browser; only whether you're at your desk is sent. Tracking slows down while this tab is in the background.";
     } else {
       cameraNote.textContent = "Tracking continues while the preview is hidden or this tab is closed. Keep the Python app running.";
     }
 
-    const body = state?.body;
+    const body = camera.inPage ? pageCamera.snapshot : state?.body;
     bodyStatus.hidden = !body;
     if (body) {
       const extras = [body.hand_raised && "hand raised", body.leaning_in && "leaning in"].filter(Boolean);
@@ -470,6 +528,16 @@
   }
 
   cameraToggle.addEventListener("click", async () => {
+    const camera = cameraInfo(companion);
+    if (camera.inPage) {
+      if (camera.status === "on") {
+        pageCamera.stop();
+        reportBodyOff();
+      } else {
+        await pageCamera.start();
+      }
+      return;
+    }
     const on = !(companion?.camera.status === "on");
     cameraToggle.disabled = true;
     try {
