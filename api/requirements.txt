@@ -1,0 +1,7 @@
+# What the Vercel deploy installs (api/index.py). Vercel reads this file
+# instead of the root requirements.txt, whose webcam, keyboard and
+# desktop-window packages can't run on a server.
+
+# Optional: chat with Claude when ANTHROPIC_API_KEY is set in the Vercel
+# project. Without the key the buddy uses its built-in replies.
+anthropic

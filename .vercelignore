@@ -1,0 +1,20 @@
+# Left out of Vercel deploys (see vercel.json and api/index.py).
+
+# What the buddy learned about you from chatting: never publish it.
+buddy_data/
+
+.venv/
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+.github/
+.kilo/
+
+# Not used by the website: webcam tracking, packaged extensions, source art,
+# repair notes and tests.
+BodyTracking/
+dist/
+art_source/
+REPAIR_REVIEW/
+tests/
