@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Buddy</title>
+  <style>
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body {
+      width: 280px; margin: 0; padding: 14px;
+      background: #fff8df; color: #2b1940;
+      font-family: "Press Start 2P", "VT323", ui-monospace, "Courier New", monospace;
+    }
+    h1 { margin: 0 0 12px; font-size: 11px; line-height: 1.6; text-transform: uppercase; }
+    .choices { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .choice {
+      display: flex; flex-direction: column; align-items: stretch; gap: 6px;
+      padding: 6px 6px 8px; cursor: pointer; font: inherit; font-size: 9px; line-height: 1.4;
+      color: inherit; text-align: center;
+      background: #eee0ff; border: 2px solid #392452; box-shadow: 3px 3px 0 rgba(43, 25, 64, 0.25);
+    }
+    .choice:hover { background: #d8b8f2; }
+    .choice[aria-pressed="true"] { background: #c6ed78; }
+    .choice:focus-visible, input:focus-visible { outline: 3px dashed #7046a0; outline-offset: 2px; }
+    .portrait {
+      height: 124px; display: flex; align-items: flex-end; justify-content: center;
+      padding-bottom: 4px; overflow: hidden; background: #fff8df; border: 2px solid #392452;
+    }
+    .portrait img { height: 108px; width: auto; }
+    .choice small { font-size: 8px; color: #715d88; }
+    label { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 9px; cursor: pointer; }
+    input { width: 16px; height: 16px; accent-color: #7046a0; }
+    #pets { margin: 12px 0 0; font-size: 8px; line-height: 1.6; color: #715d88; }
+    #app-status { margin: 12px 0 0; font-size: 8px; line-height: 1.8; color: #43245e; }
+    .app-link {
+      display: block; margin-top: 12px; padding: 8px; text-align: center;
+      background: #7046a0; color: #ffffff; border: 2px solid #392452; font-size: 9px;
+      text-decoration: none; box-shadow: 3px 3px 0 #392452;
+    }
+    .app-link:hover { background: #43245e; }
+    .app-link:focus-visible { outline: 3px dashed #7046a0; outline-offset: 2px; }
+    #access {
+      margin: 0 0 12px; padding: 8px; font-size: 8px; line-height: 1.8;
+      background: #ffe3a8; border: 2px solid #392452;
+    }
+    #access button {
+      display: block; width: 100%; margin-top: 6px; padding: 6px; cursor: pointer;
+      font: inherit; color: #ffffff; background: #7046a0; border: 2px solid #392452;
+    }
+    #access button:hover { background: #43245e; }
+    #access button:focus-visible { outline: 3px dashed #7046a0; outline-offset: 2px; }
+  </style>
+</head>
+<body>
+  <h1>Your buddy</h1>
+  <div id="access" hidden>
+    <span id="access-text">Your buddy can't visit other websites yet.</span>
+    <button type="button" id="grant">Allow on all websites</button>
+  </div>
+  <div class="choices">
+    <button class="choice" data-char="girl" aria-pressed="false">
+      <span class="portrait"><span class="buddy-pose"><img class="buddy-figure emo-happy" alt=""></span></span><span class="name"></span><small></small>
+    </button>
+    <button class="choice" data-char="boy" aria-pressed="false">
+      <span class="portrait"><span class="buddy-pose"><img class="buddy-figure emo-happy" alt=""></span></span><span class="name"></span><small></small>
+    </button>
+  </div>
+  <label><input type="checkbox" id="visible"> Show on pages</label>
+  <p id="pets"></p>
+  <p id="app-status">Checking the Buddy app…</p>
+  <label><input type="checkbox" id="voice-on" checked> Voice</label>
+  <a class="app-link" href="http://127.0.0.1:8765/" target="_blank" rel="noopener">Open Buddy app</a>
+  <script src="characters.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

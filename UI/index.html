@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Buddy</title>
+    <link rel="stylesheet" href="colorScheme.css">
+</head>
+<body>
+    <main class="window-container">
+        <header class="title-bar">
+            <h1>AI Buddy</h1>
+            <div class="status-row">
+                <span id="ai-status" class="chip" data-state="unknown">AI: checking…</span>
+                <span id="ext-status" class="chip" data-state="unknown">Extension: checking…</span>
+                <a id="download-extension" class="pixel-button" href="/download/buddy-extension.zip" download>Download extension</a>
+            </div>
+        </header>
+
+        <div class="window-content">
+            <section id="animation-box" class="panel-box">
+                <h2>Your Buddy</h2>
+                <div class="buddy-panel">
+                    <div class="stage buddy-stage">
+                        <button type="button" id="buddy-poke" class="buddy-poke" aria-label="Give your buddy a headpat">
+                            <span class="buddy-pose"><img id="buddy-figure" class="buddy-figure emo-happy" alt=""></span>
+                        </button>
+                        <p id="animation-caption" role="status"></p>
+                        <p id="mood-line" class="mood-line"></p>
+                    </div>
+                    <div class="buddy-settings">
+                        <div class="choice-row" role="group" aria-label="Choose your buddy">
+                            <button type="button" class="buddy-choice" data-char="girl" aria-pressed="false">
+                                <span class="choice-art"><span class="buddy-pose"><img class="buddy-figure emo-happy" alt=""></span></span>
+                                <span class="name"></span>
+                                <span class="label"></span>
+                            </button>
+                            <button type="button" class="buddy-choice" data-char="boy" aria-pressed="false">
+                                <span class="choice-art"><span class="buddy-pose"><img class="buddy-figure emo-happy" alt=""></span></span>
+                                <span class="name"></span>
+                                <span class="label"></span>
+                            </button>
+                        </div>
+                        <div class="feed-row">
+                            <button type="button" id="feed-buddy" class="pixel-button">Feed</button>
+                            <button type="button" id="treat-buddy" class="pixel-button" disabled hidden title="Treats are earned by 25 minutes of focused work">Treat ×0</button>
+                        </div>
+                        <div id="needs" class="needs" aria-label="Your buddy's needs" hidden>
+                            <div class="need" data-need="hunger"><span>Hunger</span><span class="bar"><span></span></span></div>
+                            <div class="need" data-need="energy"><span>Energy</span><span class="bar"><span></span></span></div>
+                            <div class="need" data-need="attention"><span>Attention</span><span class="bar"><span></span></span></div>
+                            <div class="need" data-need="affection"><span>Affection</span><span class="bar"><span></span></span></div>
+                            <div class="need" data-need="boredom"><span>Boredom</span><span class="bar"><span></span></span></div>
+                        </div>
+                        <label class="toggle" for="show-on-sites">
+                            <input type="checkbox" id="show-on-sites">
+                            Show on websites
+                        </label>
+                        <label class="toggle" for="voice-on">
+                            <input type="checkbox" id="voice-on">
+                            Voice
+                        </label>
+                        <p id="pet-count" class="small-note"></p>
+                    </div>
+                </div>
+            </section>
+
+            <section id="video-box" class="panel-box">
+                <h2>Camera</h2>
+                <div class="stage video-stage">
+                    <img id="camera-feed" alt="Your webcam, with the body tracking skeleton" hidden>
+                    <span id="camera-badge" class="live-badge" aria-hidden="true" hidden>LIVE</span>
+                    <p id="camera-note">Turn on the camera and your buddy notices when you sit down, take a break, lean in or wave.</p>
+                    <p id="body-status" class="body-status" role="status" hidden></p>
+                    <button type="button" id="camera-toggle" class="pixel-button" hidden>Start camera</button>
+                    <button type="button" id="camera-preview-toggle" class="pixel-button" hidden aria-pressed="true">Hide preview</button>
+                    <p id="camera-tracking-status" class="small-note" role="status">Camera tracking off</p>
+                </div>
+            </section>
+
+            <section id="interaction-box" class="panel-box">
+                <div class="panel-header">
+                    <h2>Chat</h2>
+                    <div class="chat-tools">
+                        <button type="button" id="memory-toggle" class="pixel-button" aria-expanded="false" aria-controls="memory-panel">Memory</button>
+                        <button type="button" id="clear-chat" class="pixel-button">Delete chat</button>
+                    </div>
+                </div>
+                <div id="memory-panel" class="memory-panel" hidden>
+                    <p id="memory-note" class="small-note"></p>
+                    <ul id="memory-list" class="memory-list"></ul>
+                    <button type="button" id="forget-all" class="pixel-button" hidden>Forget everything</button>
+                </div>
+                <div id="chat-history" role="log" aria-live="polite" aria-label="Chat log"></div>
+
+                <form id="chat-form">
+                    <label class="sr-only" for="user-input">Message Buddy</label>
+                    <input type="text" id="user-input" name="user-input" placeholder="Type a message..." autocomplete="off" required>
+                    <button type="submit" class="pixel-button">Send</button>
+                </form>
+                <p id="chat-note" class="small-note">Chats here and on other websites share one history once the extension is installed.</p>
+            </section>
+        </div>
+    </main>
+
+    <dialog id="install-dialog" aria-labelledby="install-title">
+        <h2 id="install-title">Install the extension</h2>
+        <ol>
+            <li>Unzip <b>buddy-extension.zip</b>. You'll get a <b>buddy-extension</b> folder.</li>
+            <li><b>Chrome, Edge, Brave:</b> open <code>chrome://extensions</code>, turn on <b>Developer mode</b>, click <b>Load unpacked</b> and pick the folder.</li>
+            <li><b>Firefox:</b> open <code>about:debugging</code> → <b>This Firefox</b> → <b>Load Temporary Add-on</b> and pick <b>manifest.json</b> inside the folder. Then allow it to access all websites in the add-on's permissions.</li>
+            <li>Reload the pages you have open in that browser. The status above changes to <b>Extension: connected</b>.</li>
+        </ol>
+        <form method="dialog"><button class="pixel-button">Got it</button></form>
+    </dialog>
+
+    <dialog id="clear-dialog" aria-labelledby="clear-title">
+        <h2 id="clear-title">Delete chat?</h2>
+        <p>This deletes the whole conversation, here and on other websites. It can't be undone.</p>
+        <label class="toggle" for="clear-memories">
+            <input type="checkbox" id="clear-memories">
+            <span id="clear-memories-label">Also forget what your buddy learned about you</span>
+        </label>
+        <form method="dialog" class="dialog-actions">
+            <button value="cancel" class="pixel-button secondary-button">Cancel</button>
+            <button value="delete" class="pixel-button danger-button">Delete</button>
+        </form>
+    </dialog>
+
+    <script src="/extension/characters.js"></script>
+    <script src="animation.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

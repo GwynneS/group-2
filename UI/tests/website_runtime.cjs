@@ -4,6 +4,14 @@ const fs = require("node:fs"), path = require("node:path"), vm = require("node:v
 const assert = require("node:assert/strict");
 const root = process.argv[2];
 async function settle() { for (let i=0;i<60;i++) await Promise.resolve(); }
+async function drain() { for (let i=0;i<10;i++) { await settle(); await new Promise(r=>setImmediate(r)); } }
+// What POST /api/chat/stream sends for "hi": Claude thinks, writes, saves a note.
+const STREAM = [
+  {type:"thinking",text:"They said hi."},{type:"text",text:"Hi "},
+  {type:"memory",action:"remembered",note:{id:"n1",kind:"about_you",text:"Says hi a lot"}},
+  {type:"text",text:"there!"},
+  {type:"done",reply:"Hi there!",source:"claude",thought:"They said hi.",learned:["Says hi a lot"]},
+].map(e=>JSON.stringify(e)+"\n").join("");
 function page(withExtension = false, initial = {}, backgroundVoice = true) {
   let clock = 100000, voiceId = 0, speech = null;
   const requests = [], audio = [], messages = [], events = {}, docEvents = {}, elements = new Map();
@@ -31,7 +39,7 @@ function page(withExtension = false, initial = {}, backgroundVoice = true) {
   const document = {visibilityState:"visible",hasFocus:()=>true,getElementById:el,querySelectorAll:()=>[],
     createElement:()=>new Element(),addEventListener:(type,fn)=>on(docEvents,type,fn)};
   class FakeDate extends Date {static now(){return clock;}}
-  const sandbox = {console, document, Date:FakeDate, performance:{now:()=>clock},
+  const sandbox = {console, document, Date:FakeDate, performance:{now:()=>clock}, TextDecoder,
     location:{origin:"http://127.0.0.1:8765",port:"8765"}, BuddyStage:stage,
     localStorage:{getItem:key=>storage[key]??null,setItem:(key,value)=>storage[key]=value},
     addEventListener:(type,fn)=>on(events,type,fn),setTimeout:()=>1,clearTimeout(){},setInterval:()=>1,
@@ -45,6 +53,12 @@ function page(withExtension = false, initial = {}, backgroundVoice = true) {
       else if(url==="/api/voice/claim") data={claimed:true};
       else if(url==="/api/interact") data={accepted:true};
       else if(url==="/api/presence") data=state();
+      else if(url==="/api/memory"||url==="/api/memory/clear") data={notes:[]};
+      else if(url==="/api/chat/stream"){
+        // Split mid-line: the page must buffer partial lines.
+        const bytes=new TextEncoder().encode(STREAM);
+        return {ok:true,status:200,body:new ReadableStream({start(c){c.enqueue(bytes.slice(0,25));c.enqueue(bytes.slice(25));c.close();}})};
+      }
       else throw new Error("Unexpected request "+url);
       return {ok:true,json:async()=>data};
     },
@@ -73,7 +87,16 @@ function page(withExtension = false, initial = {}, backgroundVoice = true) {
     advance:ms=>clock+=ms, click:async id=>{for(const fn of el(id).listeners.click??[])await fn({isTrusted:true});await settle();},
     change:async id=>{for(const fn of el(id).listeners.change??[])await fn({isTrusted:true});await settle();},
     fire:async (type,e={})=>{for(const fn of docEvents[type]??[])await fn(e);await settle();},
+    emit:async (id,type,e={})=>{for(const fn of el(id).listeners[type]??[])await fn(e);await drain();},
     speech:()=>speech};
+}
+// Type a message, then delete the chat through the dialog.
+async function chatAndDelete(p, alsoMemories){
+  p.el("user-input").value="hi";
+  await p.emit("chat-form","submit",{preventDefault(){}});
+  await p.click("clear-chat");
+  p.el("clear-dialog").returnValue="delete";p.el("clear-memories").checked=alsoMemories;
+  await p.emit("clear-dialog","close");
 }
 async function main(){
   const p=page();await settle();p.onState(p.state());
@@ -110,6 +133,27 @@ async function main(){
   const fallback=page(true,{},false);await settle();fallback.onState(fallback.state());
   fallback.onState({...fallback.state(),voice:{id:1,key:"fallback:1",trigger:"CMDZ",seconds:2.5}});await settle();
   assert.equal(fallback.audio.length,1,"unsupported background audio keeps website playback available");
-  console.log(JSON.stringify({previewIndependent:true,remembered:true,immediateShortcuts:true,bridgeDelegation:true}));
+
+  const alone=page();await settle();
+  alone.el("user-input").value="hi";
+  await alone.emit("chat-form","submit",{preventDefault(){}});
+  const asked=alone.requests.find(r=>r.url==="/api/chat/stream");
+  assert.equal(asked.body.message,"hi");
+  assert.deepEqual(asked.body.history,[]);
+  const saved=JSON.parse(alone.storage["buddy-app"]).chat;
+  assert.deepEqual(saved.map(m=>[m.role,m.text]),[["user","hi"],["buddy","Hi there!"]]);
+  assert.equal(saved[1].thought,"They said hi.");
+  assert.deepEqual(saved[1].learned,["Says hi a lot"]);
+  const deleting=page();await settle();await chatAndDelete(deleting,true);
+  assert.deepEqual(JSON.parse(deleting.storage["buddy-app"]).chat,[]);
+  assert.ok(deleting.requests.some(r=>r.url==="/api/memory/clear"),"the dialog's checkbox also forgets memories");
+
+  const shared=page(true);await settle();await chatAndDelete(shared,false);
+  const recorded=shared.messages.find(m=>m.type==="recordChat");
+  assert.deepEqual(Array.from(recorded.entries,m=>m.text),["hi","Hi there!"],"streamed replies join the shared history");
+  assert.ok(shared.messages.some(m=>m.type==="clearChat"),"deleting clears the extension's shared history");
+  assert.ok(!shared.requests.some(r=>r.url==="/api/memory/clear"),"memories stay unless asked");
+  console.log(JSON.stringify({previewIndependent:true,remembered:true,immediateShortcuts:true,bridgeDelegation:true,
+    chatStreaming:true,deleteChat:true}));
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});
