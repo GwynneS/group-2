@@ -1,0 +1,205 @@
+test_duration_increases_without_resetting (test_activity_tracker.ActivityTrackerTests.test_duration_increases_without_resetting) ... ok
+test_obvious_transition_can_switch_immediately (test_activity_tracker.ActivityTrackerTests.test_obvious_transition_can_switch_immediately) ... ok
+test_small_confidence_flip_does_not_switch (test_activity_tracker.ActivityTrackerTests.test_small_confidence_flip_does_not_switch) ... ok
+test_stronger_challenger_must_remain_stable_before_switch (test_activity_tracker.ActivityTrackerTests.test_stronger_challenger_must_remain_stable_before_switch) ... ok
+test_brain_update_maps_to_all_animation_states (test_animation_bridge.AnimationBridgeTests.test_brain_update_maps_to_all_animation_states) ... ok
+test_local_server_serves_ui_and_current_state (test_animation_bridge.AnimationBridgeTests.test_local_server_serves_ui_and_current_state) ... 127.0.0.1 - - [27/Sep/2026 10:28:28] "GET / HTTP/1.1" 200 -
+ok
+test_manual_animation_state_can_include_message (test_animation_bridge.AnimationBridgeTests.test_manual_animation_state_can_include_message) ... ok
+test_extension_heartbeat_reaches_the_brain (test_app_integration.AppServerTests.test_extension_heartbeat_reaches_the_brain) ... ok
+test_feeding_gives_fish (test_app_integration.AppServerTests.test_feeding_gives_fish) ... 127.0.0.1 - - [27/Sep/2026 10:28:29] "POST /api/interact HTTP/1.1" 200 -
+ok
+test_page_and_extension_assets_load (test_app_integration.AppServerTests.test_page_and_extension_assets_load) ... 127.0.0.1 - - [27/Sep/2026 10:28:29] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [27/Sep/2026 10:28:29] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [27/Sep/2026 10:28:29] "GET /animation.js HTTP/1.1" 200 -
+127.0.0.1 - - [27/Sep/2026 10:28:29] "GET /extension/characters.js HTTP/1.1" 200 -
+ok
+test_state_has_animation_and_brain_details (test_app_integration.AppServerTests.test_state_has_animation_and_brain_details) ... ok
+test_browser_keys_stand_in_when_os_keyboard_unavailable (test_app_integration.AwarenessBrowserTests.test_browser_keys_stand_in_when_os_keyboard_unavailable) ... ok
+test_extension_page_ignored_when_browser_not_in_front (test_app_integration.AwarenessBrowserTests.test_extension_page_ignored_when_browser_not_in_front) ... ok
+test_extension_page_sharpens_browser_classification (test_app_integration.AwarenessBrowserTests.test_extension_page_sharpens_browser_classification) ... ok
+test_os_keyboard_wins_when_available (test_app_integration.AwarenessBrowserTests.test_os_keyboard_wins_when_available) ... ok
+test_bad_values_are_ignored (test_app_integration.BrowserActivityTrackerTests.test_bad_values_are_ignored) ... ok
+test_empty_is_unavailable (test_app_integration.BrowserActivityTrackerTests.test_empty_is_unavailable) ... ok
+test_heartbeat_fields_and_rolling_window (test_app_integration.BrowserActivityTrackerTests.test_heartbeat_fields_and_rolling_window) ... ok
+test_leaving_the_page_is_not_focused (test_app_integration.BrowserActivityTrackerTests.test_leaving_the_page_is_not_focused) ... ok
+test_every_behavior_maps_to_valid_outputs (test_app_integration.PresenterTests.test_every_behavior_maps_to_valid_outputs) ... ok
+test_offline_state_is_safe_for_all_front_ends (test_app_integration.PresenterTests.test_offline_state_is_safe_for_all_front_ends) ... ok
+test_payload_contract (test_app_integration.PresenterTests.test_payload_contract) ... ok
+test_sleep_closes_eyes_and_sleeps_onpage (test_app_integration.PresenterTests.test_sleep_closes_eyes_and_sleeps_onpage) ... ok
+test_no_committed_merge_conflict_markers (test_app_integration.RepositoryHealthTests.test_no_committed_merge_conflict_markers)
+A merge committed with conflict markers breaks the whole app. ... ok
+test_behavior_energy_cost_is_spent_once (test_behavior.BehaviorTests.test_behavior_energy_cost_is_spent_once) ... ok
+test_commitment_prevents_rapid_switching (test_behavior.BehaviorTests.test_commitment_prevents_rapid_switching) ... ok
+test_dance_cooldown_prevents_immediate_repeat (test_behavior.BehaviorTests.test_dance_cooldown_prevents_immediate_repeat) ... ok
+test_low_attention_asks_for_attention (test_behavior.BehaviorTests.test_low_attention_asks_for_attention) ... ok
+test_low_energy_sleeps (test_behavior.BehaviorTests.test_low_energy_sleeps) ... ok
+test_play_dead_wake_signal (test_behavior.BehaviorTests.test_play_dead_wake_signal) ... ok
+test_work_context_prefers_low_distraction (test_behavior.BehaviorTests.test_work_context_prefers_low_distraction) ... ok
+test_engine_does_not_repeat_last_behavior (test_budget_memory.BehaviorMemoryTests.test_engine_does_not_repeat_last_behavior) ... ok
+test_ignored_after_no_response (test_budget_memory.BehaviorMemoryTests.test_ignored_after_no_response) ... ok
+test_ignored_buddy_sulks_instead_of_nagging (test_budget_memory.BehaviorMemoryTests.test_ignored_buddy_sulks_instead_of_nagging) ... ok
+test_ignored_feeling_wears_off (test_budget_memory.BehaviorMemoryTests.test_ignored_feeling_wears_off) ... ok
+test_interaction_after_request_is_not_ignored (test_budget_memory.BehaviorMemoryTests.test_interaction_after_request_is_not_ignored) ... ok
+test_last_5_behaviors (test_budget_memory.BehaviorMemoryTests.test_last_5_behaviors) ... ok
+test_repetition_rules (test_budget_memory.BehaviorMemoryTests.test_repetition_rules) ... ok
+test_feeding_and_interactions_count_as_attention (test_budget_memory.BrainMemoryTests.test_feeding_and_interactions_count_as_attention) ... ok
+test_budget_is_capped_and_floored (test_budget_memory.DistractionBudgetTests.test_budget_is_capped_and_floored) ... ok
+test_distracting_behaviors_cost_budget_quiet_ones_dont (test_budget_memory.DistractionBudgetTests.test_distracting_behaviors_cost_budget_quiet_ones_dont) ... ok
+test_engine_skips_behaviors_it_cannot_afford (test_budget_memory.DistractionBudgetTests.test_engine_skips_behaviors_it_cannot_afford) ... ok
+test_engine_spends_budget_once_per_behavior (test_budget_memory.DistractionBudgetTests.test_engine_spends_budget_once_per_behavior) ... ok
+test_regen_is_slow_when_focused_fast_when_idle (test_budget_memory.DistractionBudgetTests.test_regen_is_slow_when_focused_fast_when_idle) ... ok
+test_urgent_attention_request_goes_through_on_empty_budget (test_budget_memory.DistractionBudgetTests.test_urgent_attention_request_goes_through_on_empty_budget) ... ok
+test_all_scores_are_bounded (test_classifier.ClassifierTests.test_all_scores_are_bounded) ... ok
+test_highest_candidate_is_exposed_as_leader (test_classifier.ClassifierTests.test_highest_candidate_is_exposed_as_leader) ... ok
+test_macos_vscode_is_coding (test_classifier.ClassifierTests.test_macos_vscode_is_coding) ... ok
+test_scores_include_all_activity_types (test_classifier.ClassifierTests.test_scores_include_all_activity_types) ... ok
+test_typing_increases_coding_confidence (test_classifier.ClassifierTests.test_typing_increases_coding_confidence) ... ok
+test_windows_vscode_is_coding (test_classifier.ClassifierTests.test_windows_vscode_is_coding) ... ok
+test_heartbeats_carry_counts_not_content (test_extension_js.ContentScriptHeartbeatTests.test_heartbeats_carry_counts_not_content) ... ok
+test_heartbeats_send_deltas (test_extension_js.ContentScriptHeartbeatTests.test_heartbeats_send_deltas) ... ok
+test_leaving_sends_final_heartbeat_and_session (test_extension_js.ContentScriptHeartbeatTests.test_leaving_sends_final_heartbeat_and_session) ... ok
+test_pointer_movement_is_real_activity_without_recording_positions (test_extension_js.ContentScriptHeartbeatTests.test_pointer_movement_is_real_activity_without_recording_positions) ... ok
+test_polls_do_not_reset_the_age_of_input (test_extension_js.ContentScriptHeartbeatTests.test_polls_do_not_reset_the_age_of_input) ... ok
+test_python_tracker_accepts_extension_heartbeats (test_extension_js.ContentScriptHeartbeatTests.test_python_tracker_accepts_extension_heartbeats) ... ok
+test_synthetic_keys_are_not_activity (test_extension_js.ContentScriptHeartbeatTests.test_synthetic_keys_are_not_activity) ... ok
+test_all_scripts_parse (test_extension_js.ExtensionSyntaxTests.test_all_scripts_parse) ... ok
+test_buddy_runtime_consumes_the_app_state_contract (test_extension_js.ExtensionSyntaxTests.test_buddy_runtime_consumes_the_app_state_contract) ... ok
+test_brain_feed_updates_mood (test_feeding.BrainFeedingTests.test_brain_feed_updates_mood) ... ok
+test_buddy_refuses_fish_when_full (test_feeding.FeedingTests.test_buddy_refuses_fish_when_full) ... ok
+test_fish_can_be_fed_repeatedly_until_full (test_feeding.FeedingTests.test_fish_can_be_fed_repeatedly_until_full) ... ok
+test_fish_fills_hunger_and_gives_energy (test_feeding.FeedingTests.test_fish_fills_hunger_and_gives_energy) ... ok
+test_hunger_never_goes_below_zero (test_feeding.FeedingTests.test_hunger_never_goes_below_zero) ... ok
+test_cursor_near_left_edge (test_geometry.GeometryTests.test_cursor_near_left_edge) ... ok
+test_generic_interaction_effect_hook (test_integration.IntegrationTests.test_generic_interaction_effect_hook) ... ok
+test_other_groups_can_use_brain_update (test_integration.IntegrationTests.test_other_groups_can_use_brain_update) ... ok
+test_inactivity_clock_resets_and_increases (test_keyboard.KeyboardActivityTests.test_inactivity_clock_resets_and_increases) ... ok
+test_polling_does_not_reset_inactivity (test_keyboard.KeyboardActivityTests.test_polling_does_not_reset_inactivity) ... ok
+test_public_model_contains_no_key_content (test_keyboard.KeyboardActivityTests.test_public_model_contains_no_key_content) ... ok
+test_typing_rate_and_windows (test_keyboard.KeyboardActivityTests.test_typing_rate_and_windows) ... ok
+test_unavailable_monitor_returns_none (test_keyboard.KeyboardActivityTests.test_unavailable_monitor_returns_none) ... ok
+test_asks_for_input_monitoring_when_missing (test_keyboard.MacKeyTapTests.test_asks_for_input_monitoring_when_missing) ... ok
+test_cmd_c_v_z_from_key_codes (test_keyboard.MacKeyTapTests.test_cmd_c_v_z_from_key_codes) ... ok
+test_real_mac_key_events (test_keyboard.MacKeyTapTests.test_real_mac_key_events) ... skipped 'needs pyobjc (macOS)'
+test_typing_counts_keys_but_is_not_a_shortcut (test_keyboard.MacKeyTapTests.test_typing_counts_keys_but_is_not_a_shortcut) ... ok
+test_cmd_c_v_z_on_mac (test_keyboard.ShortcutDetectionTests.test_cmd_c_v_z_on_mac) ... ok
+test_ctrl_c_v_z_on_windows (test_keyboard.ShortcutDetectionTests.test_ctrl_c_v_z_on_windows) ... ok
+test_ctrl_on_mac_also_counts (test_keyboard.ShortcutDetectionTests.test_ctrl_on_mac_also_counts) ... ok
+test_modifier_names (test_keyboard.ShortcutDetectionTests.test_modifier_names) ... ok
+test_no_shortcuts_yet (test_keyboard.ShortcutDetectionTests.test_no_shortcuts_yet) ... ok
+test_other_ctrl_combos_are_ignored (test_keyboard.ShortcutDetectionTests.test_other_ctrl_combos_are_ignored) ... ok
+test_plain_typing_is_not_a_shortcut (test_keyboard.ShortcutDetectionTests.test_plain_typing_is_not_a_shortcut) ... ok
+test_tracker_counts_shortcuts (test_keyboard.ShortcutDetectionTests.test_tracker_counts_shortcuts) ... ok
+test_uppercase_with_shift_still_counts (test_keyboard.ShortcutDetectionTests.test_uppercase_with_shift_still_counts) ... ok
+test_close_stops_microphone (test_microphone.BrainMicrophoneTests.test_close_stops_microphone) ... ok
+test_microphone_off_by_default (test_microphone.BrainMicrophoneTests.test_microphone_off_by_default) ... ok
+test_quiet_keeps_buddy_playing_dead (test_microphone.BrainMicrophoneTests.test_quiet_keeps_buddy_playing_dead) ... ok
+test_yell_wakes_buddy_from_play_dead (test_microphone.BrainMicrophoneTests.test_yell_wakes_buddy_from_play_dead) ... ok
+test_full_scale_is_near_zero (test_microphone.RmsTests.test_full_scale_is_near_zero) ... ok
+test_silence_is_minimum (test_microphone.RmsTests.test_silence_is_minimum) ... ok
+test_noisy_room_raises_the_bar (test_microphone.VoiceLevelTrackerTests.test_noisy_room_raises_the_bar) ... ok
+test_normal_talking_is_not_loud (test_microphone.VoiceLevelTrackerTests.test_normal_talking_is_not_loud) ... ok
+test_quiet_room_is_not_talking_or_loud (test_microphone.VoiceLevelTrackerTests.test_quiet_room_is_not_talking_or_loud) ... ok
+test_short_yell_is_held_until_next_poll (test_microphone.VoiceLevelTrackerTests.test_short_yell_is_held_until_next_poll) ... ok
+test_snapshot_contains_no_audio (test_microphone.VoiceLevelTrackerTests.test_snapshot_contains_no_audio) ... ok
+test_tiny_spike_is_not_loud (test_microphone.VoiceLevelTrackerTests.test_tiny_spike_is_not_loud) ... ok
+test_unavailable_monitor_reports_unavailable (test_microphone.VoiceLevelTrackerTests.test_unavailable_monitor_reports_unavailable) ... ok
+test_yell_is_loud (test_microphone.VoiceLevelTrackerTests.test_yell_is_loud) ... ok
+test_yell_still_counts_with_hot_mic (test_microphone.VoiceLevelTrackerTests.test_yell_still_counts_with_hot_mic) ... ok
+test_background_thread_starts_and_stops (test_mouse.ContinuousMouseMonitorTests.test_background_thread_starts_and_stops) ... ok
+test_broken_listener_does_not_stop_tracking (test_mouse.ContinuousMouseMonitorTests.test_broken_listener_does_not_stop_tracking) ... ok
+test_failed_reader_reports_unavailable (test_mouse.ContinuousMouseMonitorTests.test_failed_reader_reports_unavailable) ... ok
+test_poll_feeds_tracker_and_listeners (test_mouse.ContinuousMouseMonitorTests.test_poll_feeds_tracker_and_listeners) ... ok
+test_cursor_on_pet (test_mouse.LookDirectionTests.test_cursor_on_pet) ... ok
+test_look_right (test_mouse.LookDirectionTests.test_look_right) ... ok
+test_look_up_left (test_mouse.LookDirectionTests.test_look_up_left) ... ok
+test_distance_last_5_seconds (test_mouse.MouseMotionTrackerTests.test_distance_last_5_seconds) ... ok
+test_never_moved (test_mouse.MouseMotionTrackerTests.test_never_moved) ... ok
+test_position_is_latest_sample (test_mouse.MouseMotionTrackerTests.test_position_is_latest_sample) ... ok
+test_still_mouse_is_not_moving (test_mouse.MouseMotionTrackerTests.test_still_mouse_is_not_moving) ... ok
+test_unavailable_reports_unavailable (test_mouse.MouseMotionTrackerTests.test_unavailable_reports_unavailable) ... ok
+test_velocity_and_moving (test_mouse.MouseMotionTrackerTests.test_velocity_and_moving) ... ok
+test_hunger_causes_faster_energy_drain (test_needs.NeedsTests.test_hunger_causes_faster_energy_drain) ... ok
+test_sleep_restores_energy (test_needs.NeedsTests.test_sleep_restores_energy) ... ok
+test_brief_alt_tab_stays_coding_but_sustained_browsing_switches (test_service.ServiceTests.test_brief_alt_tab_stays_coding_but_sustained_browsing_switches) ... ok
+test_platform_neutral_service_contract (test_service.ServiceTests.test_platform_neutral_service_contract) ... ok
+test_service_exposes_pending_leader_without_flicker (test_service.ServiceTests.test_service_exposes_pending_leader_without_flicker) ... ok
+test_attentive_user_keeps_pet_fed (test_simulation.SimulationTests.test_attentive_user_keeps_pet_fed) ... ok
+test_brief_alt_tabs_do_not_flip_activity (test_simulation.SimulationTests.test_brief_alt_tabs_do_not_flip_activity) ... ok
+test_focused_user_is_not_distracted_much (test_simulation.SimulationTests.test_focused_user_is_not_distracted_much) ... ok
+test_neglected_pet_gets_hungry_and_asks_for_attention (test_simulation.SimulationTests.test_neglected_pet_gets_hungry_and_asks_for_attention) ... ok
+test_no_immediate_repeats (test_simulation.SimulationTests.test_no_immediate_repeats) ... ok
+test_pet_is_freer_when_user_is_away (test_simulation.SimulationTests.test_pet_is_freer_when_user_is_away) ... ok
+test_play_dead_never_gets_stuck (test_simulation.SimulationTests.test_play_dead_never_gets_stuck) ... ok
+test_report_formats (test_simulation.SimulationTests.test_report_formats) ... ok
+test_same_seed_is_reproducible (test_simulation.SimulationTests.test_same_seed_is_reproducible) ... ok
+test_sleep_does_not_oscillate (test_simulation.SimulationTests.test_sleep_does_not_oscillate) ... ok
+test_workday_detects_focus_and_away (test_simulation.SimulationTests.test_workday_detects_focus_and_away) ... ok
+test_brief_switch_does_not_change_leader (test_user_state.EvidenceTests.test_brief_switch_does_not_change_leader) ... ok
+test_evidence_decays_with_time_not_poll_count (test_user_state.EvidenceTests.test_evidence_decays_with_time_not_poll_count) ... ok
+test_first_sample_is_used_directly (test_user_state.EvidenceTests.test_first_sample_is_used_directly) ... ok
+test_returning_from_idle_is_immediate (test_user_state.EvidenceTests.test_returning_from_idle_is_immediate) ... ok
+test_sustained_switch_changes_leader (test_user_state.EvidenceTests.test_sustained_switch_changes_leader) ... ok
+test_working_uses_user_state_when_present (test_user_state.ScreenContextHelperTests.test_working_uses_user_state_when_present) ... ok
+test_body_tracking_absence_means_away (test_user_state.UserStateClassifyTests.test_body_tracking_absence_means_away) ... ok
+test_body_tracking_presence_prevents_inferred_away (test_user_state.UserStateClassifyTests.test_body_tracking_presence_prevents_inferred_away) ... ok
+test_coding_while_thinking_is_still_focused (test_user_state.UserStateClassifyTests.test_coding_while_thinking_is_still_focused) ... ok
+test_coding_with_typing_is_focused (test_user_state.UserStateClassifyTests.test_coding_with_typing_is_focused) ... ok
+test_coding_without_typing_for_long_is_passive (test_user_state.UserStateClassifyTests.test_coding_without_typing_for_long_is_passive) ... ok
+test_drifting_from_work_to_browsing_is_distracted (test_user_state.UserStateClassifyTests.test_drifting_from_work_to_browsing_is_distracted) ... ok
+test_gaming_is_active (test_user_state.UserStateClassifyTests.test_gaming_is_active) ... ok
+test_idle_and_away (test_user_state.UserStateClassifyTests.test_idle_and_away) ... ok
+test_keyboard_unavailable_falls_back_to_idle_time (test_user_state.UserStateClassifyTests.test_keyboard_unavailable_falls_back_to_idle_time) ... ok
+test_video_is_passive (test_user_state.UserStateClassifyTests.test_video_is_passive) ... ok
+test_app_hopping_is_distracted (test_user_state.UserStateStabilityTests.test_app_hopping_is_distracted) ... ok
+test_coming_back_is_immediate (test_user_state.UserStateStabilityTests.test_coming_back_is_immediate) ... ok
+test_going_away_is_immediate (test_user_state.UserStateStabilityTests.test_going_away_is_immediate) ... ok
+test_new_state_must_hold_before_switching (test_user_state.UserStateStabilityTests.test_new_state_must_hold_before_switching) ... ok
+test_play_dead_times_out_without_a_yell (test_utility.EngineSafetyTests.test_play_dead_times_out_without_a_yell) ... ok
+test_sleep_continues_until_rested (test_utility.EngineSafetyTests.test_sleep_continues_until_rested) ... ok
+test_busy_user_lowers_ask_for_attention (test_utility.UtilityScoringTests.test_busy_user_lowers_ask_for_attention) ... ok
+test_decision_reason_explains_choice (test_utility.UtilityScoringTests.test_decision_reason_explains_choice) ... ok
+test_distracting_behaviors_score_lower_when_focused (test_utility.UtilityScoringTests.test_distracting_behaviors_score_lower_when_focused) ... ok
+test_loneliness_raises_ask_for_attention (test_utility.UtilityScoringTests.test_loneliness_raises_ask_for_attention) ... ok
+test_low_budget_lowers_distracting_scores (test_utility.UtilityScoringTests.test_low_budget_lowers_distracting_scores) ... ok
+test_repetition_penalty (test_utility.UtilityScoringTests.test_repetition_penalty) ... ok
+test_study_with_user_wins_while_typing_code (test_utility.UtilityScoringTests.test_study_with_user_wins_while_typing_code) ... ok
+test_tired_mood_prefers_rest (test_utility.UtilityScoringTests.test_tired_mood_prefers_rest) ... ok
+test_watch_screen_wins_while_gaming (test_utility.UtilityScoringTests.test_watch_screen_wins_while_gaming) ... ok
+test_cooldowns_are_respected (test_utility_brain.EligibilityTests.test_cooldowns_are_respected) ... ok
+test_energy_cost_only_charged_when_behavior_starts (test_utility_brain.EligibilityTests.test_energy_cost_only_charged_when_behavior_starts) ... ok
+test_min_energy_excludes_before_scoring (test_utility_brain.EligibilityTests.test_min_energy_excludes_before_scoring) ... ok
+test_attention_requests_suppressed_while_focused_unless_critical (test_utility_brain.FocusTests.test_attention_requests_suppressed_while_focused_unless_critical) ... ok
+test_distracting_behaviors_penalized_during_focus (test_utility_brain.FocusTests.test_distracting_behaviors_penalized_during_focus) ... ok
+test_focused_work_strongly_favors_quiet_behaviors (test_utility_brain.FocusTests.test_focused_work_strongly_favors_quiet_behaviors) ... ok
+test_idle_user_allows_social_and_playful_behavior (test_utility_brain.FocusTests.test_idle_user_allows_social_and_playful_behavior) ... ok
+test_video_and_gaming_favor_watch_screen (test_utility_brain.FocusTests.test_video_and_gaming_favor_watch_screen) ... ok
+test_attention_request_discouraged_after_commitment_ends (test_utility_brain.MemoryTests.test_attention_request_discouraged_after_commitment_ends) ... ok
+test_history_is_bounded (test_utility_brain.MemoryTests.test_history_is_bounded) ... ok
+test_recent_repetition_reduces_utility (test_utility_brain.MemoryTests.test_recent_repetition_reduces_utility) ... ok
+test_repeated_cycles_have_variety (test_utility_brain.MemoryTests.test_repeated_cycles_have_variety) ... ok
+test_affectionate_special_mood_favors_send_kiss (test_utility_brain.MoodAndHyperTests.test_affectionate_special_mood_favors_send_kiss) ... ok
+test_hyper_boosts_energetic_behaviors_and_wears_off (test_utility_brain.MoodAndHyperTests.test_hyper_boosts_energetic_behaviors_and_wears_off) ... ok
+test_hyper_pet_is_excited (test_utility_brain.MoodAndHyperTests.test_hyper_pet_is_excited) ... ok
+test_tired_mood_prefers_rest (test_utility_brain.MoodAndHyperTests.test_tired_mood_prefers_rest) ... ok
+test_loud_signal_wakes_play_dead (test_utility_brain.PlayDeadTests.test_loud_signal_wakes_play_dead) ... ok
+test_debug_data_is_consistent (test_utility_brain.SelectionTests.test_debug_data_is_consistent) ... ok
+test_low_scorers_never_beat_strong_behaviors (test_utility_brain.SelectionTests.test_low_scorers_never_beat_strong_behaviors) ... ok
+test_non_utility_decisions_have_empty_debug_data (test_utility_brain.SelectionTests.test_non_utility_decisions_have_empty_debug_data) ... ok
+test_preference_bonus_is_bounded (test_utility_brain.SelectionTests.test_preference_bonus_is_bounded) ... ok
+test_seeded_rng_is_deterministic (test_utility_brain.SelectionTests.test_seeded_rng_is_deterministic) ... ok
+test_commitment_prevents_rerolling (test_utility_brain.UrgencyAndCommitmentTests.test_commitment_prevents_rerolling) ... ok
+test_low_energy_forces_sleep (test_utility_brain.UrgencyAndCommitmentTests.test_low_energy_forces_sleep) ... ok
+test_not_tired_enough_to_nap (test_utility_brain.UrgencyAndCommitmentTests.test_not_tired_enough_to_nap) ... ok
+test_severe_hunger_is_urgent (test_utility_brain.UrgencyAndCommitmentTests.test_severe_hunger_is_urgent) ... ok
+test_urgent_need_interrupts_commitment (test_utility_brain.UrgencyAndCommitmentTests.test_urgent_need_interrupts_commitment) ... ok
+
+----------------------------------------------------------------------
+Ran 188 tests in 3.560s
+
+OK (skipped=1)
+Running Screen Awareness + Tamagotchi Behavior V0.5 tests...
+
+[chat] Claude unavailable, using built-in replies (ModuleNotFoundError)
+
+ALL TESTS PASSED

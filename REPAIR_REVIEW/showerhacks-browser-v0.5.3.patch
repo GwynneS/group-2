@@ -1,0 +1,2952 @@
+--- /dev/null
++++ b/REPAIR_REPORT.md
+@@ -0,0 +1,232 @@
++# Showerhacks browser integration repair — 0.5.3
++
++Source of truth: the supplied **group-2 (3).zip**. This patch compares against
++the files in that archive, not against its repository's older HEAD. It keeps
++the Python brain, local HTTP server, companion hub, browser extension and
++BodyTracking architecture.
++
++## What was reproduced before changes
++
++| Check on the supplied version | Observed failure | Corrected result |
++|---|---|---|
++| JavaScript parsing | `buddy.js` contained unresolved merge markers and failed Node's syntax check | Parses; the conflict is resolved around the existing `appState` handler |
++| Empty/automatic browser heartbeat after 400 seconds idle | Idle time became 0 | Idle time remains approximately 400 seconds |
++| Simulated camera absence | Brain presence remained unknown | Confirmed absence reaches AWAY and the existing distraction-budget logic |
++| Simulated present camera frame after 400 seconds without input | Idle time became 0 | Idle time stays approximately 400 seconds; a present person can be IDLE |
++| State consumed by the floating buddy | Missing `brain`, `onpage_mode`, `distraction_budget` | Existing presenter fields are added alongside all legacy companion fields |
++
++Baseline UI suite: 31 tests passed. Baseline brain suite: 183 tests ran, with
++one failure, one error and one skip. The two failing checks detected merge
++markers and invalid JavaScript. Reproduction records and test logs are in
++**REPAIR_REVIEW** in the corrected ZIP.
++
++## State and presence consumers audited
++
++`ActivityType.IDLE`, `UserState.IDLE`, and the pet's `Behavior.IDLE` are
++different concepts. No enum values or existing helper meanings were changed.
++
++| Consumer | Role and compatibility decision |
++|---|---|
++| `screen_behavior/awareness/models.py` | Defines activity/user-state enums and `ScreenContext`. `user_is_idle` still includes both IDLE and AWAY; its legacy activity fallback and `user_is_working` meaning are preserved. |
++| `screen_behavior/awareness/user_state.py` | Fuses idle time and presence; keeps the existing thresholds and state smoothing. Known presence now prevents the five-minute inactivity fallback from declaring AWAY. Confirmed absence still declares AWAY immediately after the tracker reports it. |
++| `screen_behavior/awareness/classifier.py`, `evidence.py` | Classify/smooth activity-level IDLE evidence. Unchanged. |
++| `screen_behavior/awareness/service.py` | Accepts `set_user_present`, exposes it in snapshots, feeds the state tracker and supplies browser keyboard fallback. Only additive undo-count support was needed here. |
++| `screen_behavior/pet/distraction.py` | Consumes `user_is_idle` and `user_is_working` for budget regeneration. Unchanged. |
++| `screen_behavior/pet/utility.py` | Uses `user_is_idle`, idle duration, FOCUSED and PASSIVE to score behavior context. Unchanged. |
++| `screen_behavior/pet/behavior.py`, `config.py`, `utility_config.py`, `models.py`, `enums.py` | Consume scoring context or define/default pet `Behavior.IDLE`. No new physical-presence policy or behavior rebalance was added. |
++| `screen_behavior/integration/presenter.py`, `animation_bridge.py` | Serialize the brain's user state and rendering intent. The companion now includes the existing presenter contract. These files themselves are unchanged. |
++| `screen_behavior/simulation.py`, `demo_brain.py` | Supply presence or construct sample IDLE/AWAY contexts. Unchanged. |
++| `BodyTracking/tracking.py` | Produces debounced presence, camera-motion and body events. The tracker and its thresholds are unchanged; its snapshots are connected at the companion boundary. |
++| `UI/companion.py` | Connects fresh, stable camera evidence to the brain; keeps it separate from input inactivity; generates existing body/typing/shortcut reactions and exposes state. |
++| `UI/server.py`, `UI/app.js` | Relay state and interactions; show body/camera state. Preview visibility is now independent of tracking. The website no longer interprets tab hiding as physical absence. |
++| `browser_extension/content.js`, `background.js`, `buddy.js`, `popup.js`, `bridge.js` | Report input/metadata, relay state, and consume rendering decisions or settings. The floating buddy uses `onpage_mode`; it does not invent a separate IDLE/AWAY classification. |
++| Existing regression suites | User-state/service/classifier tests, budget/utility/behavior tests, simulation/integration tests and the UI tests were retained and run. New tests cover the repaired boundaries. |
++
++No additional AWAY-only branch was needed in the budget or utility rules:
++their existing deliberate treatment of both resting states is preserved.
++The explicit physical-presence distinction is made at classification.
++
++## Changes and intentional behavior differences
++
++- Resolved the competing `buddy.js` implementations. Removed the unhandled
++  `brainState` polling route and used the existing `appState` message.
++- Preserved the artwork and added the existing presenter output to companion
++  state. Fresh brain decisions control movement; unrelated random wandering
++  and local sleep timers no longer override them. Fallback remains when brain
++  data is unavailable or more than ten seconds old. State polling does not
++  refresh a stopped brain's decision timestamp.
++- Separated title/host metadata from genuine input. Heartbeats carry input
++  age, so repeated reports and reports from older tabs cannot replace a newer
++  input timestamp. Legacy positive key/click/copy/paste counts still work.
++  Programmatic events, open pages, elapsed page time and scroll position do
++  not count as fresh user input.
++- Connected camera snapshots to `set_user_present`. Off, failed, starting,
++  moving, or older-than-five-second snapshots provide unknown presence.
++  Camera presence never resets keyboard/mouse inactivity. Camera processing
++  failures report an error and release the device.
++- Kept the existing no-camera policy: IDLE after roughly 60 seconds plus
++  smoothing, inferred AWAY after 300 seconds. `activity.away_inferred`
++  distinguishes the latter from camera-confirmed absence. Camera presence
++  keeps a still person IDLE, even after five minutes.
++- Removed tab-visibility-based missed-you/return reactions. Real camera
++  return events and existing voice clips remain.
++- Added immediate semantic copy/paste/undo messages and an additive shortcut
++  endpoint. Browser Ctrl+Z now reaches both voice reactions and aggregate
++  awareness counts. No typed text or clipboard contents are sent.
++- As approved, changed shortcut speech from one shared 15-second cooldown to
++  a **one-second guard per shortcut**. Different shortcuts can respond
++  immediately. Held keys and duplicate keydown/clipboard signals are filtered;
++  browser aggregate reports and a native monitor do not replay the same
++  immediate event. Shortcuts may interrupt a current voice line. Suppressed
++  repeats are discarded, not queued.
++- Added one extension audio player, a shared Voice switch, exact-clip caption
++  notifications, and an atomic server claim for live voice events. This
++  prevents duplicate playback by tabs or a separate website/desktop window.
++  Failed playback releases its claim. Brain movement updates do not wait for
++  audio loading.
++- Added Hide/Show preview independently of Start/Stop camera. Hiding removes
++  the live image stream from the page and remembers the preference; Python
++  tracking continues. A visible status still identifies active tracking.
++
++**Budget and interruption policy:** budget costs, regeneration rates, utility
++weights, hunger, energy, feeding and unrelated behavior rules are unchanged.
++Both IDLE and AWAY still use the existing idle budget rate (2 units/second).
++Corrected sensor facts now reach those rules. The intended interruption
++changes are removal of incorrect floating-buddy fallback overrides and the
++explicitly approved faster shortcut speech described above.
++
++The original voice recordings/captions, needs/feeding rules, artwork, native
++desktop-window feature, camera gestures and built-in/Claude chat paths are
++preserved. All **76 image/audio/caption asset files** match the input archive
++byte for byte. Signal analysis found about 0.22–0.60 seconds of leading silence
++in the ten shortcut recordings; no audio files were edited.
++
++## Compatibility and API details
++
++Legacy state fields remain: `animation`, `message`, `voice`, `pet`, `activity`,
++`feeding`, `camera`, and `body`. Existing public calls still accept their old
++arguments. New constructor options and aggregate fields are optional.
++
++Additions include the presenter fields, decision age, input age, undo counts,
++presence/inferred-away diagnostics, and a unique `voice.key` in each existing
++voice object. `updated_at` now describes the actual brain update rather than
++the time a client happened to poll.
++
++New routes:
++
++- `POST /api/shortcut` with `{ "shortcut": "copy" | "paste" | "undo" }`.
++- `POST /api/voice/claim` with the voice key, a player owner token, and optional
++  `release: true` after playback fails.
++- Existing `POST /api/presence` marks input only with explicit `input: true`;
++  ordinary state polls and page metadata remain read-only with respect to
++  inactivity. External callers that formerly used `{}` as an activity signal
++  must send the explicit input flag for a genuine user event.
++
++All extension messages were checked against handlers. Runtime messages are
++`session`, `heartbeat`, `pet`, `chat`, `appState`, `interact`, `shortcut`,
++`voice`, and `voiceSupport`. Audio-only `play`/`stop` messages are handled in
++the offscreen document. Website bridge messages retain `hello`, `get`,
++`setBuddy`, `pet`, `feed`, and `chat`, with additive `setVoice` and `voice`.
++
++Chrome/Edge audio uses the documented `offscreen` permission and a bundled
++audio page; Firefox uses its background page and the Firefox build removes
++the Chrome-only permission. Unsupported browsers keep website audio as the
++fallback; Safari extension-only background voice is not supported here.
++The implementation follows [Chrome's offscreen API documentation](https://developer.chrome.com/docs/extensions/reference/api/offscreen)
++and [Mozilla's background-script documentation](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Background_scripts).
++
++Extension automatic speech checks run from a focused permitted webpage,
++even when the floating character is hidden. Protected/suspended pages, no
++permitted page, or minimizing the browser can delay browser reports and voice
++events. Python camera tracking does not depend on an open preview or webpage.
++Browser-only awareness cannot see input in unrelated desktop apps.
++
++## Validation actually completed
++
++Environment: Linux, Python 3.12.14, Node 24.19.0.
++
++| Validation | Result and scope |
++|---|---|
++| `python3 -m unittest discover -s UI/tests` | 57 passed: legacy website/voice/desktop tests, real local HTTP routes, presence/inactivity, immediate shortcuts, voice claims and mocked camera failures. |
++| `python3 -m screen_behavior.run_tests` | 188 ran: 187 passed, one macOS real-keyboard test skipped. Existing needs, feeding, budget, behavior and integration suites passed. |
++| JavaScript syntax | Node parsed every extension and UI `.js` file. |
++| Extension runtime | Actual content, background, buddy, bridge, offscreen and audio-player scripts ran in Node with mocked DOM/browser/Audio APIs. Covers immediate C/V/Z, duplicate prevention, mute, failed playback recovery, offscreen recreation, camera-preview controls and brain output. No physical audio was produced. |
++| HTTP integration | Actual content/background JavaScript relayed to an actual Python HTTP server on a test port. Separately launched the real server on port 8765 and checked state, interactions, voice index, assets and the downloadable extension contents. |
++| Camera | Simulated presence/absence/return/off/error/movement/staleness and processing exceptions. No physical webcam or pose inference was run. |
++| Windows launcher | Python launch command and occupied-port guard tested with mocks; batch file supplied with Windows line endings. Not executed on Windows. |
++| Extension builds | Chromium and Firefox packages built successfully. This is packaging validation, not browser installation. |
++| Patch and archive | Patch checked/applied against a clean copy of the supplied source; resulting files compared. ZIP CRCs, modified entries and unchanged original entries verified. |
++
++Total: **244 passed, one skipped**. A page loading or HTTP 200 is not treated
++as proof of an installed extension working.
++
++Still required on your computer: install/reload the extension, confirm site
++access and sound, check real shortcut latency, start the physical webcam,
++test hidden-preview absence/return behavior, and try the Windows launcher.
++Optional dependency installation, native OS permissions, actual pywebview
++rendering, real audio and Claude credentials were not validated here.
++
++One existing test expectation was updated deliberately: paste immediately
++followed by undo now expects the undo voice, as approved. The existing
++in-frame voice fixture gained a fresh simulated camera timestamp. Other
++existing valid assertions remain.
++
++## Changed files
++
++Modified source/packaging:
++
++- `UI/app.js` — preview controls, immediate standalone shortcuts, shared voice ownership/captions and trusted input.
++- `UI/companion.py` — input/presence separation, rendering contract, immediate voice events and claims.
++- `UI/index.html` — preview toggle and camera-tracking status.
++- `UI/server.py` — explicit input handling, camera-state refresh and additive voice routes.
++- `browser_extension/background.js` — immediate shortcut relay and shared audio coordination.
++- `browser_extension/bridge.js` — voice capability/settings/playback messages.
++- `browser_extension/buddy.js` — resolved merge, fresh brain control and voice captions.
++- `browser_extension/content.js` — input age, immediate shortcut events and read-only voice polling.
++- `browser_extension/manifest.json` — version 0.5.3, audio permission and background-player reference.
++- `browser_extension/popup.html`, `popup.js` — shared Voice switch.
++- `build_extension.py` — omit Chrome-only permission from Firefox/Safari build manifests.
++- `screen_behavior/awareness/browser.py`, `service.py` — additive browser undo aggregate.
++- `screen_behavior/awareness/user_state.py` — known camera presence prevents inferred AWAY.
++
++Modified tests:
++
++- `UI/tests/test_companion.py`.
++- `screen_behavior/tests/test_extension_js.py`.
++- `screen_behavior/tests/test_user_state.py`.
++
++Added files:
++
++- `browser_extension/voice-player.js`, `voice-offscreen.js`, `voice-offscreen.html`.
++- `UI/tests/test_browser_integration.py`, `browser_http.cjs`, `voice_runtime.cjs`, `website_runtime.cjs`.
++- `screen_behavior/tests/buddy_runtime.cjs`.
++- `START_BUDDY.bat`, `start_buddy.py`, `START_HERE.md`, `REPAIR_REPORT.md`.
++
++The ZIP also includes generated build packages and `REPAIR_REVIEW` evidence
++plus a copy of the patch. Those generated artifacts are not source changes
++in the minimal review patch.
++
++## Integrating without overwriting teammate work
++
++For a beginner run, extract the complete corrected ZIP into a **new folder**
++and follow **START_HERE.md**. The fixes are already applied in that ZIP.
++
++For your team's newer branch, commit or back up current work and create a
++repair branch. Put the separately supplied patch outside the repository, then
++from your project root use its actual path:
++
++```text
++git switch -c fix/browser-integration
++git apply --check ../showerhacks-browser-v0.5.3.patch
++git apply ../showerhacks-browser-v0.5.3.patch
++python -m unittest discover -s UI/tests
++python -m screen_behavior.run_tests
++python build_extension.py chromium firefox
++```
++
++If the check reports conflicts, have the owners of those files merge the
++specific sections. Do not replace the whole newer project with this ZIP or
++force the patch through. The tested clean application is against the exact
++attached source; a perfect merge into newer teammate changes is not promised.
++Review the UI/voice changes with those teams, reload the extension, and refresh
++existing tabs after integration.
+--- /dev/null
++++ b/START_BUDDY.bat
+@@ -0,0 +1,23 @@
++@echo off
++setlocal
++cd /d "%~dp0"
++if exist ".venv\Scripts\python.exe" (
++  ".venv\Scripts\python.exe" start_buddy.py
++  goto finished
++)
++where py >nul 2>nul
++if not errorlevel 1 (
++  py -3 start_buddy.py
++  goto finished
++)
++where python >nul 2>nul
++if not errorlevel 1 (
++  python start_buddy.py
++  goto finished
++)
++echo Python was not found. Install Python 3.11 or newer, then try again.
++echo Read START_HERE.md for setup and troubleshooting.
++:finished
++echo.
++echo If an error appeared above, take a screenshot of it before closing.
++pause
+--- /dev/null
++++ b/START_HERE.md
+@@ -0,0 +1,217 @@
++# Start Buddy in your browser — repaired version 0.5.3
++
++Use this complete copy for a first run. If your team has made newer changes,
++read **REPAIR_REPORT.md** before merging; a clean patch against this ZIP's
++source does not guarantee a conflict-free merge into another branch.
++
++## 1. Test the website first
++
++1. Stop any older Buddy terminal with **Ctrl+C**.
++2. Right-click the downloaded ZIP and choose **Extract All**. Open its
++   **group-2** folder. Do not run the app from inside the ZIP.
++3. Double-click **START_BUDDY.bat**. Keep its terminal window open.
++4. Your browser should open **http://127.0.0.1:8765**. If it does not, enter
++   that address yourself.
++5. Choose a character. Try petting, feeding and chat. Turn on voice if you
++   want to check the existing audio clips; interact with the page first if
++   the browser blocks automatic sound.
++
++The basic website needs **Python 3.11 or newer**. The automated tests for this
++repair used **Python 3.12.14**. If the launcher says Python is missing, install
++Python for Windows, reopen the folder, and try again. No Node.js, webcam,
++paid AI account or optional Python packages are needed for this first test.
++Chat uses built-in replies when Claude is unavailable.
++
++You can also open a terminal inside **group-2** and run:
++
++```powershell
++py -3 start_buddy.py
++```
++
++The launcher prints the Python executable it uses. It prefers a project
++`.venv` when present; otherwise it tries the Windows `py` command, then
++`python`. Stop Buddy with **Ctrl+C** in that terminal.
++
++## 2. Test the extension second
++
++1. Keep the Python app running.
++2. In desktop Chrome open **chrome://extensions**. In Edge use
++   **edge://extensions**.
++3. Disable old copies of **Buddy Activity Tracker**, so two versions do not
++   run together.
++4. Turn on **Developer mode**, then choose **Load unpacked**.
++5. Select **group-2/browser_extension**, the folder containing
++   **manifest.json**. Do not select the whole project or the ZIP.
++6. Confirm version **0.5.3**. Grant the extension access to the sites where
++   you want it to run, if the browser asks.
++7. Refresh the Buddy website and your test webpage. Choose a character from
++   the extension's toolbar icon and enable showing it on websites.
++8. Check the floating character on an ordinary webpage. Try a headpat or
++   feeding, then make sure the website reflects the shared pet state.
++
++Browser settings pages, extension stores and some protected pages do not
++allow content scripts. The Buddy website draws its own character and does
++not add a second floating one. If you use the website's **Download extension**
++button, extract that download and load its **buddy-extension** folder instead.
++
++**A working website does not prove the extension is installed correctly.**
++Confirm the floating character appears, check the extension's **Errors**
++panel, and verify that interaction reaches the running app.
++
++### Check the faster shortcut voices
++
++1. Enable **Voice** in the extension's toolbar popup and choose a character.
++2. On an ordinary webpage, select a little text and press **Ctrl+C**. Paste
++   into a text box with **Ctrl+V**, then press **Ctrl+Z** to undo.
++3. Each different shortcut should request its voice immediately, without
++   waiting for the five-second activity report. Repeating the same shortcut
++   within one second is ignored for speech; it is not queued for later.
++4. Try with two tabs open. One shortcut should not produce duplicate voices.
++5. Close the Buddy website tab and try again on the ordinary webpage. Keep
++   the Python terminal running. Voice can be muted from the extension popup.
++
++Ctrl/Command+C/V/Z are recognized without reading copied text or recording
++what you type. The original clips contain roughly 0.2–0.6 seconds of leading
++silence; those recordings are unchanged. Actual sound and end-to-end timing
++still need checking on your computer.
++
++### Check inactivity without the camera
++
++Open **http://127.0.0.1:8765/api/state** in another tab. This is a read-only
++diagnostic page. Under `activity`, look for `idle_seconds`, `user_state`,
++`user_present`, and `away_inferred`. The response also contains `behavior`,
++`onpage_mode`, `decision_age_ms`, and `distraction_budget`.
++
++- Type or move the pointer on a permitted ordinary webpage. After the next
++  report and brain tick, normally about 5–6 seconds, `idle_seconds` should
++  drop. Then stop touching the keyboard and mouse: it should increase again.
++- A page staying open, a title change, and automatic polling must not keep
++  resetting that number.
++- Switching tabs alone must not trigger a camera-style "welcome back".
++- With no camera evidence, `user_present` is `null` (unknown). The existing
++  policy still estimates IDLE after about 60 seconds plus state smoothing,
++  and AWAY after 300 seconds without observed input. `away_inferred: true`
++  identifies that estimate. It does not prove someone left the desk.
++
++Manually clicking refresh is itself user input on extension-enabled pages.
++For a continuous hands-off check, a technical teammate can run this in a
++second PowerShell window after moving the pointer away from the test page:
++
++```powershell
++while ($true) {
++    $buddyState = Invoke-RestMethod http://127.0.0.1:8765/api/state
++    $buddyState.activity | ConvertTo-Json -Compress
++    Start-Sleep -Seconds 2
++}
++```
++
++This command only reads state. Press **Ctrl+C** in that second window to stop
++watching; keep the original Buddy terminal running.
++
++## 3. Test the camera last
++
++Get the first two stages working before adding camera dependencies.
++
++If Buddy reports missing camera packages, stop it and run the existing
++project requirements from inside **group-2**, using the same Python:
++
++```powershell
++py -3 -m pip install -r requirements.txt
++```
++
++If the launcher printed a path inside `.venv`, use this instead:
++
++```powershell
++.\.venv\Scripts\python.exe -m pip install -r requirements.txt
++```
++
++Restart Buddy. Enable the camera using the website's camera control. If it
++cannot open, check Windows camera privacy settings and close other apps using
++the device. The existing tracker may download its pose model on first use,
++so first-time setup can need internet access. No AI-chat key is needed.
++
++Use **Hide preview** to remove the live video while keeping camera tracking
++on. **Show preview** brings it back; your choice is remembered. The small
++**Camera tracking on** status remains visible. **Stop camera** is a separate
++button and actually stops tracking.
++
++After starting the camera, you can switch tabs or close the Buddy **website
++tab** and use the extension on normal webpages. You can also hide the floating
++character using its existing visibility control; activity and voice reporting
++continue on a focused permitted webpage. Keep the Python terminal running
++(minimizing it is fine). Closing the separate native desktop-app window may
++stop its server, so use **START_BUDDY.bat** for this browser workflow.
++
++| Camera check | Expected result in `/api/state` |
++|---|---|
++| Sit in view, then stop typing/moving the mouse | `user_present: true`; input inactivity continues increasing. After about a minute, IDLE is allowed. Presence prevents the five-minute inferred AWAY. |
++| Leave the camera's view | Once the tracker confirms absence, `user_present: false`, `user_state: "away"`, and `away_inferred: false`. The existing tracker normally debounces loss for about three seconds. |
++| Return to view | `user_present: true`, and the state leaves AWAY. You can still be IDLE until actual input occurs. Existing return/inactive voice reactions remain available. |
++| Turn the camera off | `user_present: null`, `body: null`. Input-based classification continues. |
++| Move/adjust the camera | Presence is unknown during detected movement. Wait for the tracker to settle. |
++| Camera fails or stops producing snapshots | Presence becomes unknown. Data older than five seconds is rejected, with the normal one-second brain tick delay. |
++
++If you remain inactive for five minutes after turning the camera off,
++`user_state` can still say AWAY, but it must be marked **inferred** and
++`user_present` must be `null`.
++
++## If something does not work
++
++| Symptom | First check |
++|---|---|
++| Python was not found | Install Python 3.11+ and reopen the launcher. |
++| Port 8765 is already in use | Close the previous Buddy terminal with Ctrl+C, then start this copy. Keep port 8765: the extension expects it. |
++| Website will not open | Leave the terminal open, read its error, and check the address includes `:8765`. |
++| Website works but no floating buddy | Check extension version 0.5.3, select a character, enable site access, and refresh an ordinary webpage. |
++| Old JavaScript syntax error remains | Disable the old extension and load this copy's folder. Refresh all test tabs. |
++| Camera packages fail to install | Save the first installation error and the Python path printed by the launcher. Continue testing with the camera off. |
++| Voice is quiet | Check the extension popup's Voice switch, selected character, app terminal, browser sound permissions and volume. Reload the updated extension and test an ordinary webpage. Audio playback was not tested on hardware here. |
++
++The launcher uses **browser-only awareness**. It cannot observe typing in
++other desktop apps or protected browser pages, so those can eventually look
++idle/away. For the existing native desktop-awareness option, install the
++project requirements and run:
++
++```powershell
++py -3 UI/server.py --open
++```
++
++The original desktop window is also preserved: `py -3 UI/server.py` uses
++pywebview when available. On macOS the project additionally has
++`screen_behavior/requirements-macos.txt`. These optional platform paths need
++testing on your computer.
++
++## Automated checks for a technical teammate
++
++Run from **group-2**:
++
++```powershell
++py -3 -m unittest discover -s UI/tests
++py -3 -m screen_behavior.run_tests
++py -3 build_extension.py chromium firefox
++node --check browser_extension/buddy.js
++```
++
++The test suites check every extension/UI JavaScript file when Node.js is
++installed. Without Node those JavaScript checks are skipped. Node is needed
++only for testing, not for normal operation. If using `.venv`, replace `py -3`
++with `.\.venv\Scripts\python.exe`.
++
++Validation here used Linux: **244 tests passed, one macOS hardware test was
++skipped**. Browser/DOM APIs and camera input were simulated. A standalone
++Python server and its actual HTTP routes were also exercised. The extension
++has **not** been installed in a real browser during this repair; physical
++webcam behavior, Windows batch execution, audio playback and native desktop
++permissions still require the staged checks above.
++
++Chrome/Edge are the first test targets. Background audio adds the extension's
++`offscreen` permission. For Firefox, use the separately generated Firefox
++package in `dist` after running the build command above; its manifest omits
++that Chrome-only permission. Firefox audio was checked with mocked APIs only.
++Safari background voice is not supported by this repair; the website keeps
++its own audio fallback where background audio is unavailable.
++
++Automatic voice checks use the focused permitted webpage. Protected pages,
++no open permitted tabs, a suspended tab, or a minimized browser can delay or
++prevent browser reporting/audio. Python camera tracking continues until you
++stop the camera or the server.
+--- a/UI/app.js
++++ b/UI/app.js
+@@ -8,7 +8,7 @@
+ //   chat message                by its words (see characters.js)
+ //   copy / paste / undo here    encouragement                      voice: CMDC / CMDV / CMDZ
+ //   idle 90s                    tired          (resting pose, until you're back)
+-//   back after 60s away         sad, then happy                    voice: onReturn
++//   camera-confirmed return    happy                              voice: onReturn
+ //
+ // Headpats, pokes, feeding and copy/paste are also sent to the companion
+ // brain (UI/server.py → screen_behavior), which updates the buddy's needs
+@@ -48,6 +48,8 @@
+   const cameraBadge = $("camera-badge");
+   const cameraNote = $("camera-note");
+   const cameraToggle = $("camera-toggle");
++  const cameraPreviewToggle = $("camera-preview-toggle");
++  const cameraTrackingStatus = $("camera-tracking-status");
+   const bodyStatus = $("body-status");
+   const showOnSites = $("show-on-sites");
+   const voiceToggle = $("voice-on");
+@@ -59,7 +61,6 @@
+   const LOCAL_KEY = "buddy-app";
+   const OFFLINE_TEXT = "I can't reach the Buddy app. Make sure python3 UI/server.py is running.";
+   const SLEEP_AFTER_MS = 90_000;
+-  const WELCOME_AFTER_MS = 60_000;
+   const HUNGRY_AFTER_MS = 45 * 60_000;
+ 
+   if (!B || !stage) {
+@@ -104,10 +105,10 @@
+   let pets = 0;
+   let lastFed = Date.now();
+   let ext = null; // { version } once the extension answers
++  let extensionVoice = false;
+   let extSeen = false; // the app server has had heartbeats from the extension
+   let typing = false;
+   let lastInput = Date.now();
+-  let hiddenAt = 0;
+ 
+   const charKey = () => prefs.character ?? "girl";
+   const buddyName = () => B.CHARACTERS[charKey()].name;
+@@ -154,7 +155,10 @@
+     if (e.source !== window || e.origin !== location.origin) return;
+     const msg = e.data;
+     if (msg?.source !== "buddy-extension") return;
+-    if (msg.type === "hello" && !ext) connect(msg.version);
++    if (msg.type === "hello" && !ext) {
++      extensionVoice = msg.voice === true;
++      connect(msg.version);
++    }
+     else if (msg.type === "response" && pending.has(msg.id)) {
+       pending.get(msg.id)(msg.data);
+       pending.delete(msg.id);
+@@ -164,7 +168,9 @@
+   async function connect(version) {
+     ext = { version };
+     renderExtStatus();
+-    applyState(await request("get"));
++    const saved = await request("get");
++    if (extensionVoice && saved.voiceOn === undefined) await request("setVoice", { on: voiceOn });
++    applyState(saved);
+   }
+ 
+   function applyState(data = {}) {
+@@ -172,6 +178,12 @@
+     if ("pets" in data) pets = data.pets ?? 0;
+     if ("chat" in data) chat = data.chat ?? [];
+     if ("lastFed" in data && data.lastFed) lastFed = data.lastFed;
++    if ("voiceOn" in data) {
++      voiceOn = data.voiceOn !== false;
++      voiceToggle.checked = voiceOn;
++      if (!voiceOn) { voice.pause(); stage.setSpeech(null); }
++    }
++    if ("voicePlayback" in data) showRemoteLine(data.voicePlayback);
+     renderSettings();
+     renderChat();
+     updateResting();
+@@ -229,7 +241,7 @@
+ 
+   const VOICE_KEY = "buddy-voice";
+   const SAME_LINE_GAP_MS = 4000; // the page and the brain may both notice one thing
+-  const CMD_LINE_GAP_MS = 15_000; // one copy/paste/undo line per 15s, as in UI/companion.py
++  const CMD_LINE_GAP_MS = 1000; // per shortcut; copy never delays a following paste/undo
+   const voice = new Audio();
+   // { trigger: { girl: [{ url, text }], boy: [...] } } from /api/voices; `text`
+   // is the clip's exact words from HackMp3s/captions.json, or null.
+@@ -240,6 +252,7 @@
+   const lastSaid = {}; // trigger -> performance.now()
+   let lineId = 0; // the line playing (or starting) now
+   let lineHeldUntil = 0; // its reaction's end: the caption stays the line's until then
++  const voiceOwner = "page-" + Math.random().toString(36).slice(2);
+ 
+   fetch("/api/voices", { cache: "no-store" })
+     .then((res) => res.json())
+@@ -272,14 +285,38 @@
+   // being said.
+   function react(emotion, ms, message, trigger, interrupt = true) {
+     stage.react(emotion, ms, message);
++    playLine(emotion, ms, message, trigger, interrupt).catch(() => {});
++  }
++
++  function showRemoteLine(line) {
++    if (!line || !voiceOn) { stage.setSpeech(null); return; }
++    const remaining = line.seconds * 1000 - (Date.now() - line.startedAt);
++    if (remaining <= 0 || line.character !== charKey()) return;
++    lineId++;
++    lineHeldUntil = performance.now() + remaining;
++    stage.setSpeech(line.text ?? "");
++    endLine();
++  }
++
++  async function playLine(emotion, ms, message, trigger, interrupt, event = null) {
+     if (!voiceOn || !trigger) return;
++    if (extensionVoice) {
++      await request("voice", { trigger, interrupt, event });
++      return; // the shared playback notification supplies its exact caption
++    }
+     const now = performance.now();
+-    // CMDC, CMDV and CMDZ share one limit.
+-    const [gapKey, gap] = trigger.startsWith("CMD") ? ["CMD", CMD_LINE_GAP_MS] : [trigger, SAME_LINE_GAP_MS];
++    const [gapKey, gap] = [trigger, trigger.startsWith("CMD") ? CMD_LINE_GAP_MS : SAME_LINE_GAP_MS];
+     if (now - (lastSaid[gapKey] ?? -Infinity) < gap) return;
+     if (!interrupt && !voice.paused && !voice.ended) return;
+     const clip = pickClip(trigger);
+     if (!clip) return;
++    let claimed = false;
++    if (event?.key) {
++      const response = await fetch("/api/voice/claim", { method: "POST", headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({ key: event.key, owner: voiceOwner }) });
++      if (!response.ok || !(await response.json()).claimed) return;
++      claimed = true;
++    }
+     lastSaid[gapKey] = now;
+     const id = ++lineId;
+     lineHeldUntil = now + ms;
+@@ -292,6 +329,8 @@
+     };
+     voice.src = clip.url;
+     voice.play().catch(() => {
++      if (claimed) fetch("/api/voice/claim", { method: "POST", headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({ key: event.key, owner: voiceOwner, release: true }) }).catch(() => {});
+       // Browsers block sound until the page has been clicked once. Nothing
+       // is said then, so the written line can show.
+       if (id !== lineId) return;
+@@ -333,10 +372,12 @@
+     if (state) {
+       const line = state.voice;
+       // Lines said before this page opened stay unsaid.
+-      if (lastVoiceId !== null && line && line.id !== lastVoiceId) {
+-        react(state.animation, line.seconds * 1000, state.message, line.trigger, false);
++      if (lastVoiceId !== null && line && (line.key ?? line.id) !== lastVoiceId) {
++        stage.react(state.animation, line.seconds * 1000, state.message);
++        playLine(state.animation, line.seconds * 1000, state.message, line.trigger,
++                 line.trigger.startsWith("CMD"), line).catch(() => {});
+       }
+-      lastVoiceId = line?.id ?? lastVoiceId ?? 0;
++      lastVoiceId = line?.key ?? line?.id ?? lastVoiceId ?? 0;
+     }
+     needsBox.hidden = !state;
+     treatButton.hidden = !state;
+@@ -367,14 +408,24 @@
+   // --- Camera (BodyTracking) -------------------------------------------------
+ 
+   const BODY_WORDS = { at_desk: "At your desk", getting_up: "Getting up", away: "Away" };
++  const PREVIEW_KEY = "buddy-camera-preview";
++  let previewVisible = true;
++  try { previewVisible = localStorage.getItem(PREVIEW_KEY) !== "hidden"; } catch {}
+ 
+   function renderCamera(state) {
+     const camera = state?.camera ?? { status: "unavailable", error: "" };
+     const on = camera.status === "on" || camera.status === "starting";
+-    if (on && !cameraFeed.getAttribute("src")) cameraFeed.src = `/api/camera.mjpg?${Date.now()}`;
+-    if (!on && cameraFeed.getAttribute("src")) cameraFeed.removeAttribute("src");
+-    cameraFeed.hidden = !on;
+-    cameraBadge.hidden = camera.status !== "on";
++    const showPreview = on && previewVisible && document.visibilityState === "visible";
++    if (showPreview && !cameraFeed.getAttribute("src")) cameraFeed.src = `/api/camera.mjpg?${Date.now()}`;
++    if (!showPreview && cameraFeed.getAttribute("src")) cameraFeed.removeAttribute("src");
++    cameraFeed.hidden = !showPreview;
++    cameraBadge.hidden = camera.status !== "on" || !showPreview;
++    cameraPreviewToggle.hidden = !on;
++    cameraPreviewToggle.textContent = previewVisible ? "Hide preview" : "Show preview";
++    cameraPreviewToggle.setAttribute("aria-pressed", String(previewVisible));
++    cameraTrackingStatus.textContent = camera.status === "on"
++      ? `Camera tracking on${showPreview ? "" : " · preview hidden"}`
++      : camera.status === "starting" ? "Camera tracking starting…" : "Camera tracking off";
+ 
+     cameraToggle.hidden = !state || camera.status === "unavailable";
+     cameraToggle.textContent = on ? "Stop camera" : "Start camera";
+@@ -388,6 +439,8 @@
+       cameraNote.textContent = camera.error;
+     } else if (!on) {
+       cameraNote.textContent = "Turn on the camera and your buddy notices when you sit down, take a break, lean in or wave.";
++    } else {
++      cameraNote.textContent = "Tracking continues while the preview is hidden or this tab is closed. Keep the Python app running.";
+     }
+ 
+     const body = state?.body;
+@@ -415,6 +468,12 @@
+     }
+     cameraToggle.disabled = false;
+   });
++  cameraPreviewToggle.addEventListener("click", () => {
++    previewVisible = !previewVisible;
++    try { localStorage.setItem(PREVIEW_KEY, previewVisible ? "shown" : "hidden"); } catch {}
++    renderCamera(companion); // does not call /api/camera or change physical presence
++  });
++  document.addEventListener("visibilitychange", () => renderCamera(companion));
+ 
+   stage.onState(renderCompanion);
+ 
+@@ -475,22 +534,46 @@
+   feedButton.addEventListener("click", () => feed("dry"));
+   treatButton.addEventListener("click", () => feed("wet"));
+ 
+-  document.addEventListener("copy", () => {
+-    react("encouragement", 2000, pick(lines().copy), "CMDC");
++  const shortcutAt = {};
++  async function reportShortcut(name, message) {
++    const at = performance.now();
++    if (at - (shortcutAt[name] ?? -Infinity) < 100) return;
++    shortcutAt[name] = at;
++    stage.react("encouragement", 2000, message);
++    if (extensionVoice) return; // content.js reports the real input immediately
++    try {
++      const response = await fetch("/api/shortcut", { method: "POST", headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({ shortcut: name }) });
++      if (response.ok) {
++        lastVoiceId ??= 0;
++        renderCompanion((await response.json()).state);
++      } else {
++        react("encouragement", 2000, message, { copy: "CMDC", paste: "CMDV", undo: "CMDZ" }[name]);
++      }
++    } catch {
++      react("encouragement", 2000, message, { copy: "CMDC", paste: "CMDV", undo: "CMDZ" }[name]);
++    }
++  }
++  document.addEventListener("copy", (event) => {
++    if (!document.hasFocus() || event.isTrusted === false) return;
++    reportShortcut("copy", pick(lines().copy));
+     interact("copy_paste");
+   });
+-  document.addEventListener("paste", () => {
+-    react("encouragement", 2000, pick(lines().paste), "CMDV");
++  document.addEventListener("paste", (event) => {
++    if (!document.hasFocus() || event.isTrusted === false) return;
++    reportShortcut("paste", pick(lines().paste));
+     interact("copy_paste");
+   });
+   document.addEventListener("keydown", (e) => {
+-    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.repeat && e.key.toLowerCase() === "z") {
+-      react("encouragement", 2000, pick(lines().undo), "CMDZ");
++    if (document.hasFocus() && e.isTrusted !== false && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && !e.repeat) {
++      const name = { c: "copy", v: "paste", z: "undo" }[String(e.key).toLowerCase()];
++      if (name) reportShortcut(name, pick(lines()[name]));
+     }
+   });
+ 
+   let lastPresence = 0;
+-  function noteInput() {
++  function noteInput(event) {
++    if (!document.hasFocus() || event?.isTrusted === false) return;
+     const wasAsleep = Date.now() - lastInput > SLEEP_AFTER_MS;
+     lastInput = Date.now();
+     if (wasAsleep) updateResting();
+@@ -498,21 +581,15 @@
+     // sent from this page, so it keeps whatever activity the extension saw.
+     if (companion && lastInput - lastPresence > 5000) {
+       lastPresence = lastInput;
+-      fetch("/api/presence", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => {});
+-    }
+-  }
+-  for (const type of ["pointermove", "keydown", "scroll", "pointerdown"]) {
++      fetch("/api/presence", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ input: true }) }).catch(() => {});
++    }
++  }
++  for (const type of ["pointermove", "keydown", "wheel", "touchmove", "pointerdown"]) {
+     addEventListener(type, noteInput, { passive: true, capture: true });
+   }
+ 
+-  document.addEventListener("visibilitychange", () => {
+-    if (document.visibilityState === "hidden") {
+-      hiddenAt = Date.now();
+-    } else if (hiddenAt && Date.now() - hiddenAt > WELCOME_AFTER_MS) {
+-      stage.react("sad", 1800, pick(lines().missed));
+-      setTimeout(() => react("happy", 1600, pick(lines().welcome), "onReturn"), 1800);
+-    }
+-  });
++  // Camera-confirmed returns arrive through /api/state. Switching tabs alone
++  // must not play a missed-you/onReturn reaction.
+ 
+   setInterval(updateResting, 5000);
+ 
+@@ -551,6 +628,7 @@
+       endLine();
+     }
+     try { localStorage.setItem(VOICE_KEY, voiceOn ? "on" : "off"); } catch {}
++    if (extensionVoice) request("setVoice", { on: voiceOn }).catch(() => {});
+   });
+ 
+   function renderSettings() {
+--- a/UI/companion.py
++++ b/UI/companion.py
+@@ -18,10 +18,12 @@
+ from __future__ import annotations
+ 
+ import importlib.util
++import math
+ import random
+ import sys
+ import threading
+ import time
++import uuid
+ from dataclasses import dataclass
+ from pathlib import Path
+ 
+@@ -33,9 +35,11 @@
+ from screen_behavior.awareness.models import ActivityType, RawScreenSnapshot, Shortcut, WindowInfo  # noqa: E402
+ from screen_behavior.awareness.service import AwarenessService  # noqa: E402
+ from screen_behavior.integration.brain import CompanionBrain  # noqa: E402
++from screen_behavior.integration.presenter import present  # noqa: E402
+ from screen_behavior.pet.interactions import InteractionEffect  # noqa: E402
+ 
+ BRAIN_TICK_SECONDS = 1.0
++BODY_STALE_SECONDS = 5.0
+ 
+ # What each user interaction does to the pet's needs.
+ INTERACTIONS = {
+@@ -81,7 +85,7 @@
+ INACTIVE_IN_FRAME_SECONDS = 60.0  # at the desk with no keyboard/mouse input -> onInactiveINframe
+ TYPING_LINE_EVERY = (45.0, 60.0)  # seconds of typing per whenTyping line, picked at random each time
+ TYPING_PAUSE_SECONDS = 8.0        # a longer pause starts the count over
+-SHORTCUT_VOICE_COOLDOWN = 15.0    # copy/paste/undo still show a reaction in between
++SHORTCUT_VOICE_COOLDOWN = 1.0     # per shortcut; a different shortcut can respond immediately
+ SHORTCUT_REACTIONS = {
+     Shortcut.COPY: ("encouragement", "Copied! Nice find~", "CMDC"),
+     Shortcut.PASTE: ("encouragement", "Pasted! You're on a roll~", "CMDV"),
+@@ -97,24 +101,25 @@
+     host; that becomes the "foreground window" the activity classifier reads.
+     """
+ 
+-    def __init__(self) -> None:
++    def __init__(self, clock=None) -> None:
+         self._lock = threading.Lock()
++        self._clock = clock or time.monotonic
+         self._title = ""
+-        self._last_input = time.monotonic()
++        self._last_input = self._clock()
+ 
+     def report(self, title: str, host: str) -> None:
+         with self._lock:
+             self._title = f"{title} - {host}".strip(" -")[:300]
+-            self._last_input = time.monotonic()
+-
+-    def note_input(self) -> None:
+-        with self._lock:
+-            self._last_input = time.monotonic()
++
++    def note_input(self, age_seconds: float = 0.0) -> None:
++        # Reporting old input again must not make it look new.
++        with self._lock:
++            self._last_input = max(self._last_input, self._clock() - age_seconds)
+ 
+     def snapshot(self) -> RawScreenSnapshot:
+         with self._lock:
+             title = self._title
+-            idle = time.monotonic() - self._last_input
++            idle = max(0.0, self._clock() - self._last_input)
+         return RawScreenSnapshot(
+             idle_seconds=idle,
+             foreground=WindowInfo(title=title, app_name="Google Chrome") if title else None,
+@@ -216,6 +221,8 @@
+                         self._frame = jpg.tobytes()
+                         self._frame_id += 1
+                         self._frame_cond.notify_all()
++        except Exception as exc:
++            self.status, self.error = "error", f"Body tracking stopped: {exc}"
+         finally:
+             tracker.close()
+             cap.release()
+@@ -246,9 +253,14 @@
+         # window can't talk to the extension, so this is how it knows.
+         self.extension_seen = False
+         self._update = None
++        self._update_at: float | None = None
++        self._updated_at: float | None = None
+         self._reaction: Reaction | None = None
+         self._reaction_id = 0
++        self._voice_session = uuid.uuid4().hex
++        self._voice_claim = None
+         self._body = None
++        self._body_at: float | None = None
+         self._last_hand_raise = 0.0
+         self._last_lean_in = 0.0
+         self._hand_was_raised = False
+@@ -257,6 +269,9 @@
+         self._inactive_announced = False
+         self._shortcut_counts: dict | None = None  # from the previous tick
+         self._last_shortcut_voice = float("-inf")
++        self._shortcut_voice_at: dict = {}
++        self._browser_shortcut_at: dict = {}
++        self._browser_immediate_until = 0.0
+         self._typing_since: float | None = None
+         self._typing_due = 0.0  # seconds of typing until the next whenTyping line
+ 
+@@ -283,8 +298,26 @@
+ 
+     def tick(self) -> None:
+         with self._lock:
++            now = time.monotonic()
++            body = self._fresh_body(now)
++            self.brain.awareness.set_user_present(
++                bool(body.present) if body is not None else None
++            )
+             self._update = self.brain.update()
+-            self._voice_for_screen(self._update.screen, time.monotonic())
++            self._update_at, self._updated_at = time.monotonic(), time.time()
++            self._voice_for_screen(self._update.screen, now)
++
++    def _fresh_body(self, now: float):
++        """Only a live, stable camera can provide physical-presence evidence."""
++        if (
++            self.camera.status == "on"
++            and self._body is not None
++            and self._body_at is not None
++            and 0 <= now - self._body_at <= BODY_STALE_SECONDS
++            and not self._body.camera_moving
++        ):
++            return self._body
++        return None
+ 
+     @property
+     def keyboard_status(self) -> str:
+@@ -297,23 +330,81 @@
+     # --- inputs --------------------------------------------------------------
+ 
+     def report_browser(self, title: str, host: str) -> None:
+-        """The user is active on a tab (title/host), or just active (both empty)."""
++        """Page metadata only; an open page is not proof of user input."""
+         if title or host:
+             self.browser_backend.report(title, host)
+-        else:
+-            self.browser_backend.note_input()
++
++    def note_browser_input(self, age_seconds: float = 0.0) -> None:
++        """Actual input, kept separate from page metadata and camera presence."""
++        if math.isfinite(age_seconds) and age_seconds >= 0:
++            self.browser_backend.note_input(age_seconds)
+ 
+     def record_browser_activity(self, payload: dict) -> None:
+         """Extension heartbeat: tab title/host plus counts (clicks, keys,
+         copies, pastes, scroll, active time). Never key identities or text."""
+         self.extension_seen = True
++        if payload.get("shortcutsImmediate") is True:
++            self._browser_immediate_until = time.monotonic() + 10.0
+         if not payload.get("left"):
+             self.report_browser(str(payload.get("title", ""))[:200], str(payload.get("host", ""))[:100])
++        if "inputAgeMs" in payload:
++            age = payload["inputAgeMs"]
++            if isinstance(age, (int, float)) and not isinstance(age, bool):
++                self.note_browser_input(age / 1000.0)
++        else:
++            # Older extensions can still report real key/click counts.
++            # activeMs, focus and maximum scroll position are not input.
++            for key in ("clicks", "keys", "copies", "pastes"):
++                value = payload.get(key, 0)
++                if isinstance(value, (int, float)) and math.isfinite(value) and value > 0:
++                    self.note_browser_input()
++                    break
+         record = getattr(self.brain.awareness, "record_browser_activity", None)
+         if callable(record):
+             with self._lock:
+                 record(payload)
+ 
++    def record_browser_shortcut(self, name: str) -> bool:
++        """Immediate semantic event only: never text, key history or clipboard data."""
++        try:
++            shortcut = Shortcut(name)
++        except ValueError:
++            return False
++        if shortcut not in SHORTCUT_REACTIONS:
++            return False
++        with self._lock:
++            now = time.monotonic()
++            self.note_browser_input()
++            self._browser_immediate_until = now + 10.0
++            self._browser_shortcut_at[shortcut] = now
++            self._say_shortcut(shortcut, now)
++        return True
++
++    def _say_shortcut(self, shortcut, now: float) -> None:
++        if now - self._shortcut_voice_at.get(shortcut, float("-inf")) < SHORTCUT_VOICE_COOLDOWN:
++            return
++        self._shortcut_voice_at[shortcut] = now
++        self._last_shortcut_voice = now
++        animation, message, voice = SHORTCUT_REACTIONS[shortcut]
++        self._react(animation, message, 2.5, voice)
++
++    def claim_voice(self, key: str, owner: str, release: bool = False) -> bool:
++        """One player per live reaction across website tabs and the extension."""
++        with self._lock:
++            if release:
++                if self._voice_claim == (key, owner):
++                    self._voice_claim = None
++                    return True
++                return False
++            reaction = self._reaction
++            if (not owner or not reaction or not reaction.voice
++                    or time.monotonic() >= reaction.until
++                    or key != f"{self._voice_session}:{reaction.id}"
++                    or (self._voice_claim and self._voice_claim[0] == key)):
++                return False
++            self._voice_claim = (key, owner)
++            return True
++
+     def interact(self, action: str, food: str = "fish") -> dict:
+         """Apply a user interaction. Returns {accepted, message}.
+ 
+@@ -321,6 +412,7 @@
+         """
+         with self._lock:
+             if action == "feed":
++                self.browser_backend.note_input()
+                 result = self.brain.feed()
+                 if result.accepted:
+                     self._react("happy", "Yum, fish! Thank you~", 3)
+@@ -329,6 +421,7 @@
+                     self._react("sad", "I'm full...", 3)
+                     message = result.reason
+                 self._update = self.brain.update()
++                self._update_at, self._updated_at = time.monotonic(), time.time()
+                 return {"accepted": result.accepted, "message": message}
+ 
+             effect = INTERACTIONS.get(action)
+@@ -337,6 +430,7 @@
+             self.brain.apply_interaction(effect)
+             self.browser_backend.note_input()
+             self._update = self.brain.update()
++            self._update_at, self._updated_at = time.monotonic(), time.time()
+             return {"accepted": True, "message": action}
+ 
+     def _on_body(self, snap) -> None:
+@@ -344,8 +438,11 @@
+         now = time.monotonic()
+         with self._lock:
+             self._body = snap
+-            if snap.present:
+-                self.browser_backend.note_input()
++            self._body_at = now
++            if snap.camera_moving:
++                self.brain.awareness.set_user_present(None)
++                return
++            self.brain.awareness.set_user_present(bool(snap.present))
+             reaction = BODY_REACTIONS.get(snap.event or "")
+             if reaction:
+                 animation, message, seconds, effect, voice = reaction
+@@ -358,8 +455,6 @@
+             elif snap.away_seconds >= GONE_AFTER_SECONDS and not self._gone_announced:
+                 self._gone_announced = True
+                 self._react("sad", "Where did you go...?", 5, "notInFrame")
+-            if snap.camera_moving:
+-                return
+             if snap.hand_raised and not self._hand_was_raised and now - self._last_hand_raise > HAND_RAISE_COOLDOWN:
+                 self._last_hand_raise = now
+                 self._react("encouragement", "Hi! *waves back*", 3)
+@@ -377,15 +472,15 @@
+         if keyboard is not None:
+             counts = dict(keyboard.shortcut_counts)
+             if self._shortcut_counts is not None:
+-                new = [s for s, n in counts.items() if n > self._shortcut_counts.get(s, 0)]
++                new = [s for s, n in counts.items()
++                       if s in SHORTCUT_REACTIONS and n > self._shortcut_counts.get(s, 0)]
++                native_keys = self.brain.awareness.keyboard_tracker.snapshot().monitoring_available
++                if not native_keys and now < self._browser_immediate_until:
++                    new = []  # these browser counts already had immediate events
++                new = [s for s in new if now - self._browser_shortcut_at.get(s, float("-inf")) > 2.0]
+                 if new:
+                     shortcut = keyboard.last_shortcut if keyboard.last_shortcut in new else new[0]
+-                    animation, message, voice = SHORTCUT_REACTIONS[shortcut]
+-                    if now - self._last_shortcut_voice < SHORTCUT_VOICE_COOLDOWN:
+-                        voice = None
+-                    else:
+-                        self._last_shortcut_voice = now
+-                    self._react(animation, message, 2.5, voice)
++                    self._say_shortcut(shortcut, now)
+             self._shortcut_counts = counts
+ 
+             since_key = keyboard.seconds_since_last_keypress
+@@ -398,11 +493,11 @@
+             else:
+                 self._typing_since = None
+ 
+-        # idle_seconds is real keyboard/mouse input with native awareness; the
+-        # browser-only backend counts sitting in view as input, so this stays quiet.
+-        body = self._body
++        # Inactivity and presence are separate in both native and browser modes.
++        # A stale or uncertain camera must not trigger an in-frame voice line.
++        body = self._fresh_body(now)
+         inactive = (
+-            self.camera.status == "on" and body is not None and body.state == "at_desk"
++            body is not None and body.present and body.state == "at_desk"
+             and screen.idle_seconds >= INACTIVE_IN_FRAME_SECONDS
+             and screen.activity != ActivityType.VIDEO  # watching is fine
+         )
+@@ -424,7 +519,9 @@
+         with self._lock:
+             update = self._update
+             reaction = self._reaction
+-            body = self._body
++            body = self._fresh_body(time.monotonic())
++            decision_age_ms = max(0.0, time.monotonic() - self._update_at) * 1000
++            updated_at = self._updated_at
+ 
+         pet = update.pet
+         decision = update.decision
+@@ -441,10 +538,14 @@
+             animation, message = reaction.animation, reaction.message
+             if reaction.voice:
+                 # seconds: how long this reaction (and its caption) still shows.
+-                voice = {"id": reaction.id, "trigger": reaction.voice, "seconds": round(reaction.until - now, 2)}
++                voice = {"id": reaction.id, "trigger": reaction.voice, "seconds": round(reaction.until - now, 2),
++                         "key": f"{self._voice_session}:{reaction.id}"}
+ 
+         camera_on = self.camera.status == "on"
+         return {
++            **present(update),
++            "updated_at": updated_at,
++            "decision_age_ms": round(decision_age_ms),
+             "animation": animation,
+             "message": message,
+             # A line to say with this reaction; the page plays each id once.
+@@ -464,6 +565,13 @@
+                 "confidence": round(update.screen.activity_confidence, 2),
+                 "source": self.awareness_source,
+                 "user_state": getattr(update.screen.user_state, "value", None),
++                "user_present": update.screen.user_present,
++                "idle_seconds": round(update.screen.idle_seconds, 1),
++                "away_inferred": (
++                    update.screen.user_state is not None
++                    and update.screen.user_state.value == "away"
++                    and update.screen.user_present is None
++                ),
+             },
+             "feeding": {"food": "fish"},
+             "camera": {"status": self.camera.status, "error": self.camera.error},
+--- a/UI/index.html
++++ b/UI/index.html
+@@ -73,6 +73,8 @@
+                     <p id="camera-note">Turn on the camera and your buddy notices when you sit down, take a break, lean in or wave.</p>
+                     <p id="body-status" class="body-status" role="status" hidden></p>
+                     <button type="button" id="camera-toggle" class="pixel-button" hidden>Start camera</button>
++                    <button type="button" id="camera-preview-toggle" class="pixel-button" hidden aria-pressed="true">Hide preview</button>
++                    <p id="camera-tracking-status" class="small-note" role="status">Camera tracking off</p>
+                 </div>
+             </section>
+ 
+--- a/UI/server.py
++++ b/UI/server.py
+@@ -22,7 +22,9 @@
+     GET  /api/status                    what's running: AI, brain awareness source, camera,
+                                         key tracking, and whether the extension has checked in
+     GET  /api/state                     live companion state (see companion.py)
+-    POST /api/presence                  {"title", "host"} of the focused tab -> state
++    POST /api/presence                  tab metadata -> state; only explicit input:true marks input
++    POST /api/shortcut                  {"shortcut": "copy"|"paste"|"undo"} -> immediate reaction
++    POST /api/voice/claim               one playback owner per live voice event
+     POST /api/interact                  {"action": pet|poke|chat|copy_paste|feed, "food"?} -> result + state
+     POST /api/camera                    {"on": bool} -> start/stop body tracking
+     POST /api/browser-activity          extension heartbeat every 5s: counts only (clicks,
+@@ -352,8 +354,21 @@
+             companion.record_browser_activity(body)
+             return self.send_json({"ok": True})
+ 
++        if self.path == "/api/shortcut":
++            accepted = companion.record_browser_shortcut(str(body.get("shortcut", "")))
++            return self.send_json({"accepted": accepted, "state": companion.state()},
++                                  HTTPStatus.OK if accepted else HTTPStatus.BAD_REQUEST)
++
++        if self.path == "/api/voice/claim":
++            claimed = companion.claim_voice(str(body.get("key", ""))[:100],
++                                             str(body.get("owner", ""))[:100],
++                                             release=body.get("release") is True)
++            return self.send_json({"claimed": claimed})
++
+         if self.path == "/api/presence":
+             companion.report_browser(str(body.get("title", ""))[:200], str(body.get("host", ""))[:100])
++            if body.get("input") is True:
++                companion.note_browser_input()
+             return self.send_json(companion.state())
+ 
+         if self.path == "/api/interact":
+@@ -370,6 +385,7 @@
+                 companion.camera.start()
+             else:
+                 companion.camera.stop()
++            companion.tick()
+             return self.send_json(companion.state())
+ 
+         return self.send_error(HTTPStatus.NOT_FOUND)
+--- /dev/null
++++ b/UI/tests/browser_http.cjs
+@@ -0,0 +1,92 @@
++// Real content.js -> real background.js -> real Python HTTP handler.
++// DOM and Chrome APIs are simulated; this does not install an extension.
++const fs = require("node:fs");
++const path = require("node:path");
++const vm = require("node:vm");
++const assert = require("node:assert/strict");
++const [root, base, mode] = process.argv.slice(2);
++const pending = [];
++const messages = [];
++const stored = {};
++let handler;
++const api = {
++  runtime: {
++    onMessage: {addListener(fn) { handler = fn; }},
++    getURL: file => "chrome-extension://test/" + file,
++    sendMessage(message) {
++      messages.push(message);
++      return new Promise(resolve => {
++        const wait = handler(message, {tab: {id: 1}}, resolve);
++        if (wait !== true) resolve();
++      });
++    },
++  },
++  storage: {
++    local: {get: async () => ({...stored}), set: async data => Object.assign(stored, data)},
++    onChanged: {addListener() {}},
++  },
++};
++function load(context, file) {
++  vm.runInContext(fs.readFileSync(path.join(root, "browser_extension", file), "utf8"), context, {filename: file});
++}
++const background = vm.createContext({
++  console, chrome: api, AbortSignal,
++  fetch(url, options) {
++    const request = fetch(base + new URL(url).pathname, options);
++    pending.push(request);
++    return request;
++  },
++});
++load(background, "characters.js");
++load(background, "background.js");
++
++let clock = 1000;
++const events = {};
++const intervals = [];
++const on = target => (type, fn) => (events[target + ":" + type] ??= []).push(fn);
++const fire = (target, type, event = {}) => (events[target + ":" + type] ?? []).forEach(fn => fn(event));
++const document = {
++  title: "HTTP regression", visibilityState: "visible", hasFocus: () => true, activeElement: null,
++  documentElement: {scrollHeight: 2000, clientHeight: 1000, scrollTop: 0},
++  addEventListener: on("document"),
++};
++const content = vm.createContext({
++  console, chrome: api, document,
++  performance: {now: () => clock},
++  location: {href: "https://example.com/", hostname: "example.com"},
++  window: {addEventListener: on("window")}, HTMLIFrameElement: class {},
++  setInterval: (fn, ms) => intervals.push({fn, ms}), setTimeout,
++});
++load(content, "content.js");
++const beat = () => intervals.find(item => item.ms === 5000).fn();
++async function main() {
++  assert.equal(typeof handler, "function");
++  if (mode === "input") {
++    fire("document", "keydown", {isTrusted: true, key: "secret-text"});
++    fire("document", "copy", {isTrusted: true, clipboardData: {getData: () => "secret-clipboard"}});
++  } else {
++    fire("document", "keydown", {isTrusted: false});
++  }
++  beat();
++  clock += 5000;
++  beat();
++  await Promise.all(pending);
++  const data = await api.runtime.sendMessage({type: "appState", page: {title: document.title, host: "example.com"}});
++  assert.ok(data && data.brain === "running");
++  for (const key of ["onpage_mode", "behavior", "pet", "activity", "voice", "distraction_budget", "decision_age_ms"]) {
++    assert.ok(key in data, "Missing API field: " + key);
++  }
++  const beats = messages.filter(message => message.type === "heartbeat").map(message => message.data);
++  assert.equal(beats[0].inputAgeMs, mode === "input" ? 0 : null);
++  assert.equal(beats[1].inputAgeMs, mode === "input" ? 5000 : null);
++  assert.equal(beats[1].keys, 0);
++  const encoded = JSON.stringify(messages);
++  assert.ok(!encoded.includes("secret-text") && !encoded.includes("secret-clipboard"));
++  if (mode === "input") {
++    const result = await api.runtime.sendMessage({type: "interact", action: "pet"});
++    assert.equal(result.accepted, true);
++    assert.ok(result.state.pet);
++  }
++  console.log(JSON.stringify({rendererContract: true, keys: beats[0].keys, inputAges: beats.map(b => b.inputAgeMs)}));
++}
++main().catch(error => { console.error(error); process.exitCode = 1; });
+--- /dev/null
++++ b/UI/tests/test_browser_integration.py
+@@ -0,0 +1,360 @@
++"""Browser/camera boundary regressions. Camera and browser APIs are mocked;
++the HTTP tests use the real local server and the real extension relay scripts.
++"""
++import json
++import shutil
++import subprocess
++import sys
++import threading
++import time
++import unittest
++from http.server import ThreadingHTTPServer
++from pathlib import Path
++from types import SimpleNamespace
++from unittest import mock
++from urllib.request import Request, urlopen
++
++ROOT = Path(__file__).resolve().parents[2]
++sys.path.insert(0, str(ROOT / "UI"))
++import companion as companion_module
++import server
++from companion import BrowserActivityBackend, CameraWorker, CompanionService
++from screen_behavior.awareness.models import Shortcut, UserState
++from screen_behavior.awareness.user_state import UserStateTracker
++from screen_behavior.pet.distraction import DistractionBudget
++
++
++def body(present=True, camera_moving=False, event=None):
++    return SimpleNamespace(present=present, camera_moving=camera_moving,
++                           state="at_desk" if present else "away", event=event,
++                           away_seconds=0, hand_raised=False, leaning_in=False)
++
++
++class BrowserCameraTests(unittest.TestCase):
++    def setUp(self):
++        self.service = CompanionService(native_awareness=False)
++        self.service.tick()
++        self.addCleanup(self.service.close)
++
++    def make_idle(self):
++        self.service.browser_backend._last_input = time.monotonic() - 400
++
++    def test_metadata_polling_and_heartbeats_do_not_reset_inactivity(self):
++        self.make_idle()
++        self.service.report_browser("Docs", "docs.python.org")
++        self.service.report_browser("", "")
++        for data in ({}, {"inputAgeMs": None}, {"activeMs": 5000, "maxScrollPct": 99},
++                     {"left": True}, {"title": "New tab", "host": "example.com"}):
++            self.service.record_browser_activity(data)
++            self.assertGreaterEqual(self.service.browser_backend.snapshot().idle_seconds, 400)
++        self.service.tick()
++        state = self.service.state()
++        self.assertEqual(state["activity"]["user_state"], "away")
++        self.assertIsNone(state["activity"]["user_present"])
++        self.assertTrue(state["activity"]["away_inferred"])
++
++    def test_repeated_input_age_and_older_tabs_preserve_last_actual_input(self):
++        clock = SimpleNamespace(now=1000.0)
++        backend = BrowserActivityBackend(clock=lambda: clock.now)
++        self.service.browser_backend = backend
++        self.service.brain.awareness.backend = backend
++        clock.now = 1400
++        self.service.record_browser_activity({"inputAgeMs": 400000})
++        self.assertEqual(backend.snapshot().idle_seconds, 400)
++        clock.now = 1410
++        self.service.record_browser_activity({"inputAgeMs": 410000})
++        self.assertEqual(backend.snapshot().idle_seconds, 410)
++        self.service.record_browser_activity({"inputAgeMs": 2000})
++        self.assertEqual(backend.snapshot().idle_seconds, 2)
++        self.service.record_browser_activity({"inputAgeMs": 410000, "left": True})
++        self.assertEqual(backend.snapshot().idle_seconds, 2)
++
++    def test_invalid_input_ages_do_not_reset_inactivity(self):
++        self.make_idle()
++        for age in (None, -1, "recent", float("inf"), float("nan"), True):
++            with self.subTest(age=age):
++                self.service.record_browser_activity({"inputAgeMs": age})
++                self.assertGreaterEqual(self.service.browser_backend.snapshot().idle_seconds, 400)
++
++    def test_legacy_real_counts_still_work(self):
++        for count in ("keys", "clicks", "copies", "pastes"):
++            self.make_idle()
++            self.service.record_browser_activity({count: 1})
++            self.assertLess(self.service.browser_backend.snapshot().idle_seconds, 1)
++
++    def test_camera_absence_and_corrected_idle_reach_budget_without_changing_rates(self):
++        self.service.camera.status = "on"  # simulated snapshots; no webcam opened
++        self.service._on_body(body(present=False))
++        self.service.tick()
++        screen = self.service._update.screen
++        self.assertIs(screen.user_present, False)
++        self.assertEqual(screen.user_state, UserState.AWAY)
++        self.assertTrue(screen.user_is_idle)  # existing helper includes AWAY
++        self.assertFalse(self.service.state()["activity"]["away_inferred"])
++        budget = DistractionBudget()
++        budget.value = 0
++        budget.tick(screen, 10)
++        self.assertEqual(budget.value, 20)  # unchanged 2/sec idle/away refill
++
++    def test_present_person_can_be_idle_and_receive_existing_in_frame_voice(self):
++        clock = SimpleNamespace(now=1000.0)
++        tracker = UserStateTracker(clock=lambda: clock.now)
++        tracker.update(self.service._update.screen)
++        self.service.brain.awareness.user_state_tracker = tracker
++        self.service.camera.status = "on"
++        self.make_idle()
++        self.service._on_body(body())
++        self.service.tick()
++        clock.now += 6  # normal state smoothing, no real sleep
++        self.service._on_body(body())
++        self.service.tick()
++        screen = self.service._update.screen
++        self.assertIs(screen.user_present, True)
++        self.assertGreaterEqual(screen.idle_seconds, 400)
++        self.assertEqual(screen.user_state, UserState.IDLE)
++        self.assertEqual(self.service.state()["voice"]["trigger"], "onInactiveINframe")
++        budget = DistractionBudget()
++        budget.value = 0
++        budget.tick(screen, 10)
++        self.assertEqual(budget.value, 20)
++
++    def test_camera_return_leaves_away_without_inventing_input(self):
++        self.make_idle()
++        self.service.camera.status = "on"
++        self.service._on_body(body(present=False))
++        self.service.tick()
++        self.service._on_body(body(event="user_returned"))
++        self.service.tick()
++        self.assertIs(self.service._update.screen.user_present, True)
++        self.assertEqual(self.service._update.screen.user_state, UserState.IDLE)
++        self.assertGreaterEqual(self.service._update.screen.idle_seconds, 400)
++        # The existing in-frame reaction may follow the camera return reaction.
++        self.assertIn(self.service.state()["voice"]["trigger"], {"onReturn", "onInactiveINframe"})
++
++    def test_off_failed_stale_and_moving_camera_clear_presence(self):
++        for status in ("off", "error", "unavailable", "starting", "stale", "moving"):
++            with self.subTest(status=status):
++                self.service.camera.status = "on"
++                self.service._on_body(body(present=False))
++                self.service.tick()
++                if status == "stale":
++                    self.service._body_at -= companion_module.BODY_STALE_SECONDS + 1
++                elif status == "moving":
++                    self.service._on_body(body(present=False, camera_moving=True))
++                else:
++                    self.service.camera.status = status
++                self.service.tick()
++                state = self.service.state()
++                self.assertIsNone(self.service._update.screen.user_present)
++                self.assertNotEqual(self.service._update.screen.user_state, UserState.AWAY)
++                self.assertIsNone(state["body"])
++
++    def test_uncertain_camera_cannot_trigger_in_frame_voice(self):
++        self.make_idle()
++        for kind in ("off", "stale", "moving"):
++            with self.subTest(kind=kind):
++                self.service._reaction = None
++                self.service.camera.status = "on"
++                self.service._on_body(body(camera_moving=kind == "moving"))
++                if kind == "stale":
++                    self.service._body_at -= companion_module.BODY_STALE_SECONDS + 1
++                elif kind == "off":
++                    self.service.camera.status = "off"
++                self.service.tick()
++                self.assertIsNone(self.service.state()["voice"])
++
++    def test_state_preserves_legacy_fields_and_renderer_contract(self):
++        state = self.service.state()
++        self.assertTrue({"animation", "message", "voice", "pet", "activity", "feeding", "camera", "body"} <= state.keys())
++        self.assertEqual(state["brain"], "running")
++        self.assertIn(state["onpage_mode"], {"idle", "sleep", "wander", "follow", "cheer", "attention"})
++        self.assertEqual(state["behavior"], state["pet"]["behavior"])
++        self.assertEqual(state["user"]["state"], state["activity"]["user_state"])
++        self.assertIn("distraction_budget", state)
++
++    def test_polling_does_not_make_an_old_decision_fresh(self):
++        before = self.service.state()["updated_at"]
++        self.service._update_at -= 12
++        state = self.service.state()
++        self.assertEqual(state["updated_at"], before)
++        self.assertGreaterEqual(state["decision_age_ms"], 12000)
++        self.service.tick()
++        self.assertLess(self.service.state()["decision_age_ms"], 1000)
++
++    def test_camera_processing_failure_is_reported_and_releases_device(self):
++        cap = mock.Mock()
++        cap.isOpened.return_value = True
++        cap.read.return_value = (True, object())
++        tracker = mock.Mock()
++        tracker.process.side_effect = RuntimeError("simulated frame failure")
++        fake_cv = SimpleNamespace(VideoCapture=mock.Mock(return_value=cap))
++        fake_tracking = SimpleNamespace(BodyTracker=mock.Mock(return_value=tracker), draw_skeleton=mock.Mock())
++        with mock.patch.dict(sys.modules, {"cv2": fake_cv, "BodyTracking.tracking": fake_tracking}):
++            self.service.camera._run(0)
++        self.assertEqual(self.service.camera.status, "error")
++        self.assertIn("simulated frame failure", self.service.camera.error)
++        tracker.close.assert_called_once()
++        cap.release.assert_called_once()
++
++
++class BrowserHTTPTests(unittest.TestCase):
++    def setUp(self):
++        self.service = CompanionService(native_awareness=False)
++        self.service.tick()
++        self.previous_companion = server.companion
++        server.companion = self.service
++        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
++        self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
++        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
++
++    def tearDown(self):
++        self.httpd.shutdown()
++        self.httpd.server_close()
++        self.service.close()
++        server.companion = self.previous_companion
++
++    def post(self, path, payload):
++        req = Request(self.base + path, data=json.dumps(payload).encode(),
++                      headers={"Content-Type": "application/json"})
++        with urlopen(req, timeout=5) as response:
++            return json.load(response)
++
++    def test_presence_polling_is_metadata_only_until_explicit_input(self):
++        self.service.browser_backend._last_input = time.monotonic() - 400
++        for payload in ({}, {"title": "Notes", "host": "example.com"}):
++            state = self.post("/api/presence", payload)
++            self.assertGreaterEqual(self.service.browser_backend.snapshot().idle_seconds, 400)
++            self.assertIn("onpage_mode", state)
++        self.post("/api/presence", {"input": True})
++        self.assertLess(self.service.browser_backend.snapshot().idle_seconds, 1)
++
++    def test_camera_off_route_immediately_clears_confirmed_absence(self):
++        self.service.camera.status = "on"
++        self.service._on_body(body(present=False))
++        self.service.tick()
++        state = self.post("/api/camera", {"on": False})
++        self.assertIsNone(state["activity"]["user_present"])
++        self.assertIsNone(state["body"])
++        self.assertEqual(state["camera"]["status"], "off")
++
++    def test_shortcut_http_responds_immediately_and_voice_is_claimed_once(self):
++        result = self.post("/api/shortcut", {"shortcut": "undo"})
++        self.assertTrue(result["accepted"])
++        event = result["state"]["voice"]
++        self.assertEqual(event["trigger"], "CMDZ")
++        payload = {"key": event["key"], "owner": "test-tab-one"}
++        self.assertTrue(self.post("/api/voice/claim", payload)["claimed"])
++        self.assertFalse(self.post("/api/voice/claim", {**payload, "owner": "test-tab-two"})["claimed"])
++        self.assertTrue(self.post("/api/voice/claim", {**payload, "release": True})["claimed"])
++        self.assertTrue(self.post("/api/voice/claim", {**payload, "owner": "test-tab-two"})["claimed"])
++
++    @unittest.skipUnless(shutil.which("node"), "node is not installed")
++    def test_real_extension_relay_and_content_script_over_http(self):
++        self.service.browser_backend._last_input = time.monotonic() - 400
++        def run(mode):
++            result = subprocess.run(
++                [shutil.which("node"), str(ROOT / "UI/tests/browser_http.cjs"), str(ROOT), self.base, mode],
++                capture_output=True, text=True, timeout=20,
++            )
++            self.assertEqual(result.returncode, 0, result.stderr)
++            return json.loads(result.stdout)
++        quiet = run("quiet")
++        self.assertTrue(quiet["rendererContract"])
++        self.assertGreaterEqual(self.service.browser_backend.snapshot().idle_seconds, 400)
++        active = run("input")
++        self.assertEqual(active["keys"], 1)
++        self.assertLess(self.service.browser_backend.snapshot().idle_seconds, 3)
++        self.service.tick()
++        self.assertTrue(self.service.extension_seen)
++        self.assertTrue(self.service._update.screen.keyboard.typing_active)
++
++
++class ShortcutVoiceTests(unittest.TestCase):
++    def setUp(self):
++        self.service = CompanionService(native_awareness=False)
++        self.service.tick()
++        self.addCleanup(self.service.close)
++
++    def test_copy_paste_undo_have_no_shared_delay_and_do_not_change_needs(self):
++        before = self.service.state()["pet"]
++        for name, trigger in (("copy", "CMDC"), ("paste", "CMDV"), ("undo", "CMDZ")):
++            self.assertTrue(self.service.record_browser_shortcut(name))
++            self.assertEqual(self.service.state()["voice"]["trigger"], trigger)
++        self.assertEqual(self.service.state()["pet"], before)
++
++    def test_same_shortcut_has_one_second_guard_without_queuing_old_audio(self):
++        self.service.record_browser_shortcut("undo")
++        first = self.service.state()["voice"]
++        self.service.record_browser_shortcut("undo")
++        self.assertEqual(self.service.state()["voice"]["key"], first["key"])
++        self.service._shortcut_voice_at[Shortcut.UNDO] -= 1.1
++        self.service.record_browser_shortcut("undo")
++        self.assertNotEqual(self.service.state()["voice"]["key"], first["key"])
++
++    def test_delayed_browser_counts_do_not_replay_immediate_shortcut(self):
++        self.service.record_browser_shortcut("copy")
++        key = self.service.state()["voice"]["key"]
++        self.service.record_browser_activity({"keys": 2, "copies": 1, "inputAgeMs": 1200,
++                                             "shortcutsImmediate": True})
++        self.service.tick()
++        self.assertEqual(self.service.state()["voice"]["key"], key)
++
++    def test_native_monitor_and_browser_do_not_duplicate_the_same_shortcut(self):
++        tracker = self.service.brain.awareness.keyboard_tracker
++        tracker.set_monitoring_available(True)
++        self.service.tick()
++        self.service.record_browser_shortcut("paste")
++        key = self.service.state()["voice"]["key"]
++        tracker.record_shortcut(Shortcut.PASTE)
++        self.service.tick()
++        self.assertEqual(self.service.state()["voice"]["key"], key)
++
++    def test_undo_counts_reach_browser_fallback_keyboard_context(self):
++        self.service.record_browser_activity({"host": "example.com", "undos": 2, "keys": 2,
++                                             "inputAgeMs": 0, "shortcutsImmediate": True})
++        self.service.tick()
++        self.assertEqual(self.service._update.screen.keyboard.shortcut_counts[Shortcut.UNDO], 2)
++
++    def test_claim_is_atomic_and_failed_player_can_release_only_its_own_claim(self):
++        self.service.record_browser_shortcut("copy")
++        key = self.service.state()["voice"]["key"]
++        results = []
++        threads = [threading.Thread(target=lambda i=i: results.append(
++            (i, self.service.claim_voice(key, str(i))))) for i in range(8)]
++        for thread in threads: thread.start()
++        for thread in threads: thread.join()
++        winners = [i for i, claimed in results if claimed]
++        self.assertEqual(len(winners), 1)
++        self.assertFalse(self.service.claim_voice(key, "not-the-owner", release=True))
++        self.assertTrue(self.service.claim_voice(key, str(winners[0]), release=True))
++        self.assertTrue(self.service.claim_voice(key, "replacement-player"))
++
++    def test_expired_or_invalid_voice_requests_are_rejected(self):
++        self.assertFalse(self.service.record_browser_shortcut("raw typed text"))
++        self.service.record_browser_shortcut("undo")
++        key = self.service.state()["voice"]["key"]
++        self.service._reaction.until -= 4
++        self.assertFalse(self.service.claim_voice(key, "a"))
++        self.assertFalse(self.service.claim_voice("invented", "a"))
++
++
++@unittest.skipUnless(shutil.which("node"), "node is not installed")
++class VoiceAndPreviewRuntimeTests(unittest.TestCase):
++    def run_runtime(self, name, *args):
++        result = subprocess.run([shutil.which("node"), str(ROOT / "UI/tests" / name), str(ROOT), *args],
++                                capture_output=True, text=True, timeout=20)
++        self.assertEqual(result.returncode, 0, result.stderr)
++        return json.loads(result.stdout)
++
++    def test_extension_audio_with_mocked_chromium_offscreen_lifecycle(self):
++        self.assertTrue(self.run_runtime("voice_runtime.cjs", "chromium")["singlePlayer"])
++
++    def test_extension_audio_with_mocked_firefox_background_document(self):
++        self.assertTrue(self.run_runtime("voice_runtime.cjs", "firefox")["singlePlayer"])
++
++    def test_website_preview_and_voice_controls_with_mocked_dom(self):
++        self.assertTrue(self.run_runtime("website_runtime.cjs")["previewIndependent"])
++
++
++if __name__ == "__main__":
++    unittest.main()
+--- a/UI/tests/test_companion.py
++++ b/UI/tests/test_companion.py
+@@ -154,8 +154,8 @@
+         keys.record_shortcut(Shortcut.UNDO)
+         self.service.tick()
+         state = self.service.state()
+-        self.assertEqual(state["message"], "Undo! No worries~")  # still reacts,
+-        self.assertIsNone(state["voice"])  # but the voice rests between shortcuts
++        self.assertEqual(state["message"], "Undo! No worries~")
++        self.assertEqual(state["voice"]["trigger"], "CMDZ")  # different shortcuts respond immediately
+ 
+     def test_typing_says_a_line_every_45_to_60_seconds(self):
+         self.service._voice_for_screen(screen(since_key=1), now=1000)
+@@ -180,6 +180,7 @@
+     def test_sitting_idle_in_frame_says_a_line_once(self):
+         self.service.camera.status = "on"
+         self.service._body = body(present=True)
++        self.service._body_at = 1000  # a fresh simulated camera frame
+         self.service._voice_for_screen(screen(idle=90), now=1000)
+         first = self.voice()
+         self.assertEqual(first[1], "onInactiveINframe")
+--- /dev/null
++++ b/UI/tests/voice_runtime.cjs
+@@ -0,0 +1,143 @@
++// Actual extension relay/player scripts; simulated Chrome/Firefox APIs and
++// Audio element. No browser is installed and no physical sound is produced.
++const fs = require("node:fs"), path = require("node:path"), vm = require("node:vm");
++const assert = require("node:assert/strict");
++const [root, browser] = process.argv.slice(2);
++let clock = 1000, creations = 0, failures = 0, open = false;
++let current = null;
++const plays = [], claims = new Map(), listeners = [], changes = [];
++const stored = {buddy: {character: "girl", visible: false}, voiceOn: true};
++class FakeDate extends Date { static now() { return clock; } }
++class FakeAudio {
++  constructor() { this.paused = true; this.ended = false; this.duration = 2; }
++  pause() { this.paused = true; }
++  removeAttribute() { this.src = ""; }
++  async play() {
++    if (failures) { failures--; throw new Error("simulated autoplay failure"); }
++    this.paused = false;
++    plays.push(this.src);
++  }
++}
++const api = {
++  runtime: {
++    id: "test-extension", getURL: name => "chrome-extension://test/" + name,
++    getContexts: async () => open ? [{}] : [],
++    onMessage: {addListener(fn) { listeners.push(fn); }},
++    sendMessage(message) {
++      return new Promise(resolve => {
++        let wait = false;
++        for (const fn of listeners) if (fn(message, {id: api.runtime.id, tab: {id: 1}}, resolve) === true) wait = true;
++        if (!wait) resolve();
++      });
++    },
++  },
++  storage: {
++    local: {
++      get: async () => ({...stored}),
++      set: async values => {
++        const diff = {};
++        for (const [key, value] of Object.entries(values)) { diff[key] = {newValue: value}; stored[key] = value; }
++        for (const fn of changes) fn(diff, "local");
++      },
++    },
++    onChanged: {addListener: fn => changes.push(fn)},
++  },
++};
++const load = (context, name) => vm.runInContext(fs.readFileSync(path.join(root, "browser_extension", name), "utf8"), context, {filename:name});
++if (browser === "chromium") {
++  api.offscreen = {createDocument: async options => {
++    assert.deepEqual(Array.from(options.reasons), ["AUDIO_PLAYBACK"]);
++    assert.equal(options.url, "voice-offscreen.html");
++    creations++;
++    open = true;
++    const context = vm.createContext({chrome: api, Audio: FakeAudio, URL, setTimeout, clearTimeout});
++    load(context, "voice-player.js");
++    load(context, "voice-offscreen.js");
++  }};
++}
++let nextEvent = 0;
++function event(trigger) { return {key: "session:" + (++nextEvent), id: nextEvent, trigger, seconds: 2.5}; }
++const index = Object.fromEntries(["CMDC", "CMDV", "CMDZ", "onReturn"].map(trigger => [trigger, {
++  girl: [{url: "/voice/" + trigger + "F1.mp3", text: "Exact " + trigger + " caption"}],
++}]));
++const fetch = async (url, options = {}) => {
++  const pathname = new URL(url).pathname, body = JSON.parse(options.body ?? "{}");
++  let data;
++  if (pathname === "/api/voices") data = index;
++  else if (pathname === "/api/voice/claim") {
++    if (body.release) { const owned = claims.get(body.key) === body.owner; if (owned) claims.delete(body.key); data = {claimed:owned}; }
++    else { const free = !claims.has(body.key); if (free) claims.set(body.key, body.owner); data = {claimed:free}; }
++  } else if (pathname === "/api/presence") data = {voice:current};
++  else if (pathname === "/api/shortcut") {
++    current = event({copy:"CMDC", paste:"CMDV", undo:"CMDZ"}[body.shortcut]);
++    data = {accepted:true, state:{voice:current}};
++  } else throw new Error("Unexpected HTTP path " + pathname);
++  return {ok:true, status:200, json:async () => data};
++};
++const background = vm.createContext({console, chrome:api, fetch, AbortSignal, URL, Date:FakeDate, setTimeout, clearTimeout,
++  ...(browser === "firefox" ? {Audio:FakeAudio} : {})});
++for (const file of ["characters.js", "voice-player.js", "background.js"]) load(background, file);
++async function settle() { for (let i=0; i<30; i++) await Promise.resolve(); }
++async function main() {
++  // The Buddy website is not loaded; the floating buddy preference is hidden.
++  const inputEvents = {}, inputMessages = [], pendingInput = [];
++  let focused = true;
++  const doc = {title:"Test",visibilityState:"visible",hasFocus:()=>focused,
++    documentElement:{scrollHeight:1000,clientHeight:1000,scrollTop:0},
++    addEventListener:(type,fn)=>(inputEvents[type]??=[]).push(fn)};
++  const content = vm.createContext({document:doc,window:{addEventListener(){}},HTMLIFrameElement:class {},
++    location:{href:"https://example.com",hostname:"example.com"},performance:{now:()=>clock},Date:FakeDate,
++    setInterval(){},setTimeout(){},chrome:{runtime:{sendMessage:message=>{
++      inputMessages.push(message);
++      const job=api.runtime.sendMessage(message);pendingInput.push(job);return job;
++    }}}});
++  load(content,"content.js");
++  const fire=(type,event)=>{for(const fn of inputEvents[type]??[])fn(event);};
++  for (const [key, shortcut] of [["c","copy"],["v","paste"],["z","undo"]]) {
++    fire("keydown", {key,ctrlKey:true,isTrusted:true});
++    if(shortcut!=="undo")fire(shortcut,{isTrusted:true,clipboardData:{getData:()=>"PRIVATE CLIPBOARD"}});
++    await Promise.all(pendingInput.splice(0));
++    clock += 100;
++  }
++  assert.equal(inputMessages.length,3,"keydown and its clipboard event are one immediate shortcut");
++  assert.ok(inputMessages.every(message=>Object.keys(message).sort().join() === "shortcut,type"));
++  fire("keydown",{key:"z",ctrlKey:true,isTrusted:true,repeat:true});
++  fire("keydown",{key:"z",ctrlKey:true,isTrusted:false});
++  focused=false;fire("keydown",{key:"z",ctrlKey:true,isTrusted:true});
++  assert.equal(inputMessages.length,3,"repeat, synthetic and unfocused input are ignored");
++  assert.equal(plays.length, 3, "different shortcuts must not share a long cooldown");
++  assert.ok(plays[2].endsWith("CMDZF1.mp3"));
++  assert.equal(stored.voicePlayback.text, "Exact CMDZ caption");
++  clock += 1200;
++  await Promise.all([api.runtime.sendMessage({type:"appState"}), api.runtime.sendMessage({type:"appState"})]);
++  await settle();
++  assert.equal(plays.length, 3, "multiple tabs must not replay one brain event");
++  if (browser === "chromium") assert.equal(creations, 1, "reuse one offscreen player");
++  await api.storage.local.set({voiceOn:false});
++  await settle();
++  await api.runtime.sendMessage({type:"shortcut", shortcut:"copy"});
++  assert.equal(plays.length, 3, "mute applies without the website being open");
++  assert.equal(stored.voicePlayback, null);
++  await api.storage.local.set({voiceOn:true});
++  failures = 1;
++  const failed = event("CMDC");
++  await api.runtime.sendMessage({type:"voice", trigger:"CMDC", event:failed, interrupt:true});
++  assert.ok(!claims.has(failed.key), "failed playback must release its server claim");
++  await api.runtime.sendMessage({type:"voice", trigger:"CMDC", event:failed, interrupt:true});
++  assert.equal(plays.length, 4);
++  clock += 1200;
++  const elsewhere = event("CMDV");
++  claims.set(elsewhere.key, "desktop-window");
++  await api.runtime.sendMessage({type:"voice", trigger:"CMDV", event:elsewhere, interrupt:true});
++  assert.equal(plays.length, 4, "a website/native window claim prevents duplicate audio");
++  if (browser === "chromium") {
++    // Chrome can close the document after a period without audio. Recreate it.
++    open = false;
++    listeners.splice(1);
++    await api.runtime.sendMessage({type:"shortcut", shortcut:"undo"});
++    assert.equal(creations, 2);
++    assert.equal(plays.length, 5);
++  }
++  console.log(JSON.stringify({singlePlayer:true, immediateShortcuts:true, mute:true, claimRecovery:true, creations}));
++}
++main().catch(error => {console.error(error); process.exitCode=1;});
+--- /dev/null
++++ b/UI/tests/website_runtime.cjs
+@@ -0,0 +1,115 @@
++// Execute the real website (and optional real extension bridge) with a small
++// DOM/Audio mock. This verifies control wiring, not visual layout or hardware.
++const fs = require("node:fs"), path = require("node:path"), vm = require("node:vm");
++const assert = require("node:assert/strict");
++const root = process.argv[2];
++async function settle() { for (let i=0;i<60;i++) await Promise.resolve(); }
++function page(withExtension = false, initial = {}, backgroundVoice = true) {
++  let clock = 100000, voiceId = 0, speech = null;
++  const requests = [], audio = [], messages = [], events = {}, docEvents = {}, elements = new Map();
++  const storage = {"buddy-app":JSON.stringify({prefs:{character:"girl",visible:true}}), ...initial};
++  const on = (map, type, fn) => (map[type] ??= []).push(fn);
++  class Element {
++    constructor() { this.attributes = {}; this.listeners = {}; this.style = {}; this.dataset = {}; this.hidden = false; this.checked = true; this.textContent=""; this.children=new Map(); this.classList={add(){},remove(){},toggle(){}}; }
++    get parentElement() { return this.parent ??= new Element(); }
++    get src() { return this.attributes.src ?? ""; }
++    set src(v) { this.attributes.src=v; }
++    getAttribute(key) { return this.attributes[key] ?? null; }
++    setAttribute(key,value) { this.attributes[key]=value; }
++    removeAttribute(key) { delete this.attributes[key]; }
++    addEventListener(type, fn) { on(this.listeners,type,fn); }
++    querySelector(key) { if (!this.children.has(key)) this.children.set(key,new Element()); return this.children.get(key); }
++    querySelectorAll() { return []; }
++    append() {} replaceChildren() {} showModal() {} focus() {}
++  }
++  const el = id => { if (!elements.has(id)) elements.set(id,new Element()); return elements.get(id); };
++  let onState;
++  const stage = {onState(fn){onState=fn;},setSpeech(text){speech=text;},setCharacter(){},react(){},isReacting:()=>true,setResting(){},setDefaultCaption(){}};
++  const state = () => ({animation:"encouragement",message:"Copied!",pet:{mood:"happy",hunger:25,energy:90,attention:80,affection:75,boredom:10},
++    activity:{type:"coding"},feeding:{food:"fish"},camera:{status:"on",error:""},body:{state:"at_desk",present:true},voice:null});
++  const clips = Object.fromEntries(["CMDC","CMDV","CMDZ"].map(trigger=>[trigger,{girl:[{url:`/voice/${trigger}F1.mp3`,text:`Exact ${trigger}`}]}]));
++  const document = {visibilityState:"visible",hasFocus:()=>true,getElementById:el,querySelectorAll:()=>[],
++    createElement:()=>new Element(),addEventListener:(type,fn)=>on(docEvents,type,fn)};
++  class FakeDate extends Date {static now(){return clock;}}
++  const sandbox = {console, document, Date:FakeDate, performance:{now:()=>clock},
++    location:{origin:"http://127.0.0.1:8765",port:"8765"}, BuddyStage:stage,
++    localStorage:{getItem:key=>storage[key]??null,setItem:(key,value)=>storage[key]=value},
++    addEventListener:(type,fn)=>on(events,type,fn),setTimeout:()=>1,clearTimeout(){},setInterval:()=>1,
++    Audio:class {constructor(){this.paused=true;this.ended=false;} addEventListener(){} pause(){this.paused=true;} async play(){this.paused=false;audio.push(this.src);}},
++    fetch:async (url,options={})=>{
++      const body=JSON.parse(options.body??"{}"); requests.push({url,body});
++      let data;
++      if(url==="/api/status") data={ai:"offline",extension_seen:withExtension};
++      else if(url==="/api/voices") data=clips;
++      else if(url==="/api/shortcut") data={accepted:true,state:{...state(),voice:{id:++voiceId,key:"test:"+voiceId,trigger:{copy:"CMDC",paste:"CMDV",undo:"CMDZ"}[body.shortcut],seconds:2.5}}};
++      else if(url==="/api/voice/claim") data={claimed:true};
++      else if(url==="/api/interact") data={accepted:true};
++      else if(url==="/api/presence") data=state();
++      else throw new Error("Unexpected request "+url);
++      return {ok:true,json:async()=>data};
++    },
++  };
++  sandbox.window=sandbox;
++  let pageWindow;
++  sandbox.postMessage=(data,origin)=>Promise.resolve().then(()=>{
++    for(const fn of events.message??[]) fn({data,origin,source:pageWindow});
++  });
++  const context=vm.createContext(sandbox);
++  pageWindow=vm.runInContext("window",context);
++  const load=(file)=>vm.runInContext(fs.readFileSync(path.join(root,file),"utf8"),context,{filename:file});
++  load("browser_extension/characters.js");
++  if(withExtension){
++    const shared={buddy:{character:"girl",visible:true},voiceOn:true};
++    const changed=[];
++    sandbox.chrome={runtime:{getManifest:()=>({version:"0.5.3"}),sendMessage:async m=>{messages.push(m);return m.type === "voiceSupport" ? {supported:backgroundVoice} : {played:true};}},
++      storage:{local:{get:async()=>({...shared}),set:async data=>{
++        Object.assign(shared,data);const diff=Object.fromEntries(Object.entries(data).map(([k,v])=>[k,{newValue:v}]));
++        for(const fn of changed)fn(diff,"local");
++      }},onChanged:{addListener:fn=>changed.push(fn)}}};
++    load("browser_extension/bridge.js");
++  }
++  load("UI/app.js");
++  return {el,storage,requests,audio,messages,state,document,onState:s=>onState(s),
++    advance:ms=>clock+=ms, click:async id=>{for(const fn of el(id).listeners.click??[])await fn({isTrusted:true});await settle();},
++    change:async id=>{for(const fn of el(id).listeners.change??[])await fn({isTrusted:true});await settle();},
++    fire:async (type,e={})=>{for(const fn of docEvents[type]??[])await fn(e);await settle();},
++    speech:()=>speech};
++}
++async function main(){
++  const p=page();await settle();p.onState(p.state());
++  assert.ok(p.el("camera-feed").src.startsWith("/api/camera.mjpg"));
++  await p.click("camera-preview-toggle");
++  assert.equal(p.el("camera-feed").hidden,true);
++  assert.equal(p.el("camera-feed").getAttribute("src"),null);
++  assert.equal(p.storage["buddy-camera-preview"],"hidden");
++  assert.ok(p.el("camera-tracking-status").textContent.includes("tracking on"));
++  assert.ok(!p.requests.some(r=>r.url==="/api/camera"),"hiding preview must not stop tracking");
++  await p.click("camera-preview-toggle");
++  assert.equal(p.el("camera-feed").hidden,false);
++  p.document.visibilityState="hidden";await p.fire("visibilitychange");
++  assert.equal(p.el("camera-feed").getAttribute("src"),null);
++  p.document.visibilityState="visible";await p.fire("visibilitychange");
++  assert.equal(p.el("camera-feed").hidden,false);
++  const remembered=page(false,{"buddy-camera-preview":"hidden"});await settle();remembered.onState(remembered.state());
++  assert.equal(remembered.el("camera-feed").hidden,true);
++  for(const key of ["c","v","z"]){
++    await p.fire("keydown",{key,ctrlKey:true,isTrusted:true});p.advance(150);
++  }
++  assert.equal(p.audio.length,3,"website shortcut voices must not share a 15-second gap");
++  const sent=p.requests.filter(r=>r.url==="/api/shortcut");
++  assert.deepEqual(sent.map(r=>r.body.shortcut),["copy","paste","undo"]);
++  await p.fire("keydown",{key:"z",ctrlKey:true,repeat:true,isTrusted:true});
++  await p.fire("keydown",{key:"z",ctrlKey:true,isTrusted:false});
++  assert.equal(p.requests.filter(r=>r.url==="/api/shortcut").length,3);
++  const ext=page(true);await settle();ext.onState(ext.state());
++  ext.onState({...ext.state(),voice:{id:1,key:"native:1",trigger:"CMDZ",seconds:2.5}});await settle();
++  assert.equal(ext.audio.length,0,"connected website delegates audio to the extension");
++  assert.equal(ext.messages.filter(m=>m.type==="voice").length,1);
++  ext.el("voice-on").checked=false;await ext.change("voice-on");
++  assert.equal(ext.el("voice-on").checked,false);
++  const fallback=page(true,{},false);await settle();fallback.onState(fallback.state());
++  fallback.onState({...fallback.state(),voice:{id:1,key:"fallback:1",trigger:"CMDZ",seconds:2.5}});await settle();
++  assert.equal(fallback.audio.length,1,"unsupported background audio keeps website playback available");
++  console.log(JSON.stringify({previewIndependent:true,remembered:true,immediateShortcuts:true,bridgeDelegation:true}));
++}
++main().catch(error=>{console.error(error);process.exitCode=1;});
+--- a/browser_extension/background.js
++++ b/browser_extension/background.js
+@@ -11,6 +11,8 @@
+ //                                 the companion brain knows what you're doing,
+ //                                 and returns its state (emotion, needs, mood)
+ //   interact   -> /api/interact   headpats, pokes, feeding, copy/paste
++//   shortcut   -> /api/shortcut   immediate copy/paste/undo, without typed text
++//   voice / voiceSupport         shared audio player and its capability check
+ //
+ // Storage layout (browser.storage.local):
+ //   sessions: [record, ...]          newest last, capped at MAX_SESSIONS
+@@ -26,6 +28,9 @@
+ if (typeof importScripts === "function" && !globalThis.BuddyCharacters) {
+   importScripts("characters.js");
+ }
++if (typeof importScripts === "function" && !globalThis.BuddyAudio) {
++  importScripts("voice-player.js");
++}
+ 
+ const api = globalThis.browser ?? globalThis.chrome;
+ const MAX_SESSIONS = 1000;
+@@ -129,8 +134,96 @@
+   }
+ }
+ 
++// One playback owner for every tab. The server claim also prevents a second
++// website/desktop window from speaking the same brain event.
++let creatingAudio = null;
++let voiceQueue = Promise.resolve();
++let clipIndex = null;
++const lastClip = {};
++const lastVoice = {};
++const voiceOwner = "extension-" + Math.random().toString(36).slice(2);
++
++async function audioMessage(message, create = true) {
++  if (!api.offscreen?.createDocument) {
++    if (typeof Audio !== "function") throw new Error("Background voice is unavailable in this browser");
++    return message.type === "stop" ? BuddyAudio.stop() : BuddyAudio.play(message);
++  }
++  const contexts = await api.runtime.getContexts({
++    contextTypes: ["OFFSCREEN_DOCUMENT"], documentUrls: [api.runtime.getURL("voice-offscreen.html")],
++  });
++  if (!contexts.length) {
++    if (!create) return { stopped: true };
++    if (!creatingAudio) {
++      creatingAudio = api.offscreen.createDocument({
++        url: "voice-offscreen.html", reasons: ["AUDIO_PLAYBACK"],
++        justification: "Play the user's enabled Buddy voice clips without opening a video window.",
++      }).finally(() => { creatingAudio = null; });
++    }
++    await creatingAudio;
++  }
++  if (message.type === "play" && (await api.storage.local.get("voiceOn")).voiceOn === false) {
++    return { played: false, reason: "muted" };
++  }
++  return api.runtime.sendMessage({ target: "buddy-audio", ...message });
++}
++
++async function playVoice({ trigger, interrupt = false, event = null }) {
++  const { voiceOn = true, buddy } = await api.storage.local.get(["voiceOn", "buddy"]);
++  if (!voiceOn || !buddy?.character) return { played: false, reason: "muted" };
++  const at = Date.now();
++  const gap = String(trigger).startsWith("CMD") ? 1000 : 4000;
++  if (at - (lastVoice[trigger] ?? -Infinity) < gap) return { played: false, reason: "repeat" };
++  if (!clipIndex) {
++    const response = await fetch(`${APP_URL}/api/voices`, { signal: AbortSignal.timeout(3000) });
++    if (!response.ok) throw new Error("Voice clips unavailable");
++    clipIndex = await response.json();
++  }
++  const options = clipIndex[trigger]?.[buddy.character] ?? [];
++  const fresh = options.length > 1 ? options.filter(clip => clip.url !== lastClip[trigger]) : options;
++  if (!fresh.length) return { played: false, reason: "no_clip" };
++  const clip = fresh[Math.floor(Math.random() * fresh.length)];
++  let claimed = false;
++  if (event?.key) {
++    claimed = (await appRequest("/api/voice/claim", { key: event.key, owner: voiceOwner }))?.claimed === true;
++    if (!claimed) return { played: false, reason: "already_claimed" };
++  }
++  try {
++    // Mute may have changed while the clip index/document was loading.
++    if ((await api.storage.local.get("voiceOn")).voiceOn === false) return { played: false, reason: "muted" };
++    const result = await audioMessage({ type: "play", url: APP_URL + clip.url, interrupt });
++    if (!result?.played) throw new Error(result?.error ?? result?.reason ?? "Voice did not start");
++    lastVoice[trigger] = Date.now();
++    lastClip[trigger] = clip.url;
++    claimed = false; // keep the successful server claim
++    await api.storage.local.set({ voicePlayback: {
++      text: clip.text, trigger, character: buddy.character, startedAt: Date.now(),
++      seconds: result.duration ?? event?.seconds ?? 4,
++    } });
++    return { ...result, text: clip.text, trigger };
++  } finally {
++    if (claimed) await appRequest("/api/voice/claim", { key: event.key, owner: voiceOwner, release: true });
++  }
++}
++
++function queueVoice(message) {
++  const job = voiceQueue.then(() => playVoice(message));
++  voiceQueue = job.catch(() => {});
++  return job.catch(error => ({ played: false, error: String(error) }));
++}
++
++async function withBrainVoice(state) {
++  if (state?.voice?.seconds > 0) {
++    await queueVoice({ trigger: state.voice.trigger, event: state.voice,
++                       interrupt: state.voice.trigger.startsWith("CMD") });
++  }
++  return state;
++}
++
+ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+-  if (msg?.type === "session" && msg.record) {
++  if (msg?.target === "buddy-audio") return; // handled only by the offscreen page
++  if (msg?.type === "voiceSupport") {
++    sendResponse({ supported: !!api.offscreen?.createDocument || typeof Audio === "function" });
++  } else if (msg?.type === "session" && msg.record) {
+     saveRecord({ ...msg.record, tabId: sender.tab?.id });
+   } else if (msg?.type === "heartbeat" && msg.data) {
+     toBrain("/api/browser-activity", msg.data);
+@@ -142,7 +235,20 @@
+     return true; // keep the channel open for the async reply
+   } else if (msg?.type === "appState") {
+     const page = msg.page ? { title: String(msg.page.title ?? ""), host: String(msg.page.host ?? "") } : {};
+-    appRequest("/api/presence", page).then(sendResponse);
++    appRequest("/api/presence", page).then(state => {
++      sendResponse(state); // movement/state delivery never waits for audio loading
++      withBrainVoice(state).catch(() => {});
++    });
++    return true;
++  } else if (msg?.type === "shortcut") {
++    appRequest("/api/shortcut", { shortcut: msg.shortcut }).then(async result => {
++      if (result?.accepted) await withBrainVoice(result.state);
++      sendResponse(result);
++    });
++    return true;
++  } else if (msg?.type === "voice") {
++    queueVoice({ trigger: String(msg.trigger ?? ""), interrupt: msg.interrupt === true,
++                 event: msg.event }).then(sendResponse);
+     return true;
+   } else if (msg?.type === "interact") {
+     appRequest("/api/interact", { action: msg.action, food: msg.food }).then(sendResponse);
+@@ -177,4 +283,8 @@
+ api.storage.local.get("buddy").then(({ buddy }) => updateIcon(buddy?.character));
+ api.storage.onChanged.addListener((changes, area) => {
+   if (area === "local" && changes.buddy) updateIcon(changes.buddy.newValue?.character);
++  if (area === "local" && changes.voiceOn?.newValue === false) {
++    audioMessage({ type: "stop" }, false).catch(() => {});
++    api.storage.local.set({ voicePlayback: null });
++  }
+ });
+--- a/browser_extension/bridge.js
++++ b/browser_extension/bridge.js
+@@ -23,14 +23,17 @@
+   if (location.port !== "8765") return;
+ 
+   const api = globalThis.browser ?? globalThis.chrome;
+-  const SHARED_KEYS = ["buddy", "pets", "chat", "lastFed"];
++  const SHARED_KEYS = ["buddy", "pets", "chat", "lastFed", "voiceOn", "voicePlayback"];
+ 
+   function post(msg) {
+     window.postMessage({ source: "buddy-extension", ...msg }, location.origin);
+   }
+ 
+-  function hello() {
+-    post({ type: "hello", version: api.runtime.getManifest().version });
++  async function hello() {
++    let supported = false;
++    try { supported = (await api.runtime.sendMessage({ type: "voiceSupport" }))?.supported === true; }
++    catch {}
++    post({ type: "hello", version: api.runtime.getManifest().version, voice: supported });
+   }
+ 
+   function cleanBuddy(buddy) {
+@@ -53,6 +56,14 @@
+         return api.runtime.sendMessage({ type: "pet" });
+       case "feed":
+         return api.storage.local.set({ lastFed: Date.now() });
++      case "setVoice":
++        await api.storage.local.set({ voiceOn: msg.on !== false });
++        return post({ type: "response", id: msg.id, data: {} });
++      case "voice": {
++        const data = await api.runtime.sendMessage({ type: "voice", trigger: String(msg.trigger ?? ""),
++          interrupt: msg.interrupt === true, event: msg.event });
++        return post({ type: "response", id: msg.id, data });
++      }
+       case "chat": {
+         const text = String(msg.text ?? "").slice(0, 2000);
+         const data = await api.runtime.sendMessage({ type: "chat", text });
+--- a/browser_extension/buddy.js
++++ b/browser_extension/buddy.js
+@@ -38,14 +38,9 @@
+   const EDGE = 8;
+   const TOP_ROOM = 60; // keep space above for the speech bubble
+   const SLEEP_AFTER_MS = 90_000;
+-  const WELCOME_AFTER_MS = 60_000;
+   const HUNGRY_AFTER_MS = 45 * 60_000;
+   const APP_POLL_MS = 4000;
+-<<<<<<< HEAD
+-  const BRAIN_POLL_MS = 3000;
+   const BRAIN_STALE_MS = 10_000;
+-=======
+->>>>>>> 9b0637757641b51cd0079019b108ecf6b47ec0ad
+   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+ 
+   const LINES = {
+@@ -244,8 +239,10 @@
+     modeUntil: 0,
+     facingLeft: false,
+     lastInput: Date.now(),
+-    hiddenAt: 0,
+     mouse: null,
++    brain: null,
++    brainAt: 0,
++    brainMode: null,
+   };
+   const reaction = { emotion: null, until: 0 };
+   let bubbleTimer = 0;
+@@ -275,12 +272,12 @@
+   }
+ 
+   // With the app running, its brain decides hunger; otherwise a local timer does.
+-  const isHungry = () => (app ? app.animation === "hungry" : Date.now() - lastFed > HUNGRY_AFTER_MS);
++  const isHungry = () => (brainFresh() ? app?.animation === "hungry" : Date.now() - lastFed > HUNGRY_AFTER_MS);
+ 
+   function currentPose(now) {
+     if (reaction.emotion && now < reaction.until) return { emotion: reaction.emotion, active: true };
+     if (st.mode === "sleep") return { emotion: "tired", active: false };
+-    if (app && app.animation !== "lounging") return { emotion: app.animation, active: false };
++    if (brainFresh() && app && app.animation !== "lounging") return { emotion: app.animation, active: false };
+     if (isHungry()) return { emotion: "hungry", active: false };
+     return { emotion: "happy", active: false };
+   }
+@@ -302,8 +299,9 @@
+     try {
+       next = await api.runtime.sendMessage({ type: "appState", page });
+     } catch {}
+-    // Say what the brain is up to when it changes (hungry, lonely, sleepy...).
+-    if (next && next.animation !== app?.animation && next.animation !== "lounging" && now() > reaction.until) {
++    applyBrain(next);
++    // Say what a fresh brain decision is up to when it changes.
++    if (brainFresh() && next.animation !== app?.animation && next.animation !== "lounging" && now() > reaction.until) {
+       say(next.message, 3500);
+     }
+     app = next;
+@@ -359,7 +357,6 @@
+     return false;
+   }
+ 
+-<<<<<<< HEAD
+   // --- Companion brain -----------------------------------------------------
+ 
+   function brainFresh() {
+@@ -369,12 +366,25 @@
+   // Act on the brain's decision when it changes; in between, the buddy's own
+   // movement code animates it.
+   function applyBrain(data) {
+-    st.brain = data;
+-    st.brainAt = data ? Date.now() : 0;
+-    const mode = data?.onpage_mode ?? null;
+-    if (!mode || mode === st.brainMode) return;
+-    st.brainMode = mode;
++    const age = data?.decision_age_ms ?? 0; // older compatible servers have no age field
++    const valid = ["idle", "sleep", "wander", "follow", "cheer", "attention"].includes(data?.onpage_mode)
++      && data?.brain !== "offline" && Number.isFinite(age) && age >= 0 && age < BRAIN_STALE_MS;
++    st.brain = valid ? data : null;
++    st.brainAt = st.brain ? Date.now() - age : 0;
++    syncBrainMode();
++  }
++
++  function syncBrainMode() {
++    if (!brainFresh()) {
++      st.brainMode = null;
++      return;
++    }
+     if (st.mode === "chat" || drag || !prefs.character) return;
++    const data = st.brain;
++    const mode = data.onpage_mode;
++    const key = `${data.behavior ?? ""}:${mode}`;
++    if (key === st.brainMode) return;
++    st.brainMode = key;
+ 
+     switch (mode) {
+       case "sleep":
+@@ -388,6 +398,10 @@
+         break;
+       case "follow":
+         if (st.mouse) setMode("follow", rand(4000, 6000));
++        else {
++          setMode("idle");
++          st.brainMode = null; // apply this decision once a cursor is available
++        }
+         break;
+       case "cheer":
+         setMode("idle", 3000);
+@@ -395,32 +409,20 @@
+         break;
+       case "attention":
+         if (st.mouse) setMode("follow", 6000);
+-        say(pick(lines().attention), 3500);
++        else setMode("idle");
++        if (data.message) say(data.message, 3500);
+         break;
+       default:
+-        if (st.mode === "sleep") {
+-          setMode("idle", 1500);
+-          say(pick(lines().wake), 2500);
+-        }
+-    }
+-  }
+-
+-  function pollBrain() {
+-    if (!running) return;
+-    try {
+-      api.runtime.sendMessage({ type: "brainState" }).then(applyBrain, () => applyBrain(null));
+-    } catch {
+-      applyBrain(null); // extension reloaded; this page's script is orphaned
+-    }
+-  }
+-  setInterval(pollBrain, BRAIN_POLL_MS);
+-
+-=======
+->>>>>>> 9b0637757641b51cd0079019b108ecf6b47ec0ad
++        setMode("idle");
++    }
++  }
++
+   function update(now, dt) {
+     if (drag) return false;
+-
+-    if (st.mode !== "sleep" && st.mode !== "chat" && Date.now() - st.lastInput > SLEEP_AFTER_MS) {
++    syncBrainMode();
++    const controlled = brainFresh();
++
++    if (!controlled && st.mode !== "sleep" && st.mode !== "chat" && Date.now() - st.lastInput > SLEEP_AFTER_MS) {
+       setMode("sleep");
+       say("Zzz...", 0);
+     }
+@@ -431,14 +433,16 @@
+     let moving = false;
+     switch (st.mode) {
+       case "idle":
+-        if (now > st.modeUntil) pickNextMove();
++        if (!controlled && now > st.modeUntil) pickNextMove();
+         break;
+       case "wander":
+         moving = !moveToward(st.tx, st.ty, 60, dt);
+         if (!moving || now > st.modeUntil) {
+           setMode("idle", rand(2500, 7000));
+-          if (isHungry() && Math.random() < 0.4) say(pick(lines().hungry));
+-          else if (Math.random() < 0.15) say(pick(lines().idle));
++          if (!controlled) {
++            if (isHungry() && Math.random() < 0.4) say(pick(lines().hungry));
++            else if (Math.random() < 0.15) say(pick(lines().idle));
++          }
+         }
+         break;
+       case "follow": {
+@@ -496,10 +500,6 @@
+     last = 0;
+     requestAnimationFrame(frame);
+     pollApp();
+-<<<<<<< HEAD
+-    pollBrain();
+-=======
+->>>>>>> 9b0637757641b51cd0079019b108ecf6b47ec0ad
+   }
+ 
+   function stop() {
+@@ -547,6 +547,7 @@
+     if (!drag) return;
+     const wasDrag = drag.moved;
+     drag = null;
++    st.brainMode = null;
+     wake();
+     if (wasDrag) {
+       if (chatPanel.hidden) setMode("idle", 8000);
+@@ -656,6 +657,7 @@
+   function closeChat() {
+     chatPanel.hidden = true;
+     setMode("idle", rand(1500, 3000));
++    st.brainMode = null;
+   }
+ 
+   function renderChat() {
+@@ -711,7 +713,7 @@
+ 
+   function wake() {
+     st.lastInput = Date.now();
+-    if (st.mode === "sleep") {
++    if (st.mode === "sleep" && !brainFresh()) {
+       setMode("idle", 1500);
+       react("happy", 1500, pick(lines().wake));
+     }
+@@ -724,29 +726,24 @@
+   addEventListener("keydown", wake, { passive: true, capture: true });
+   addEventListener("scroll", wake, { passive: true });
+ 
+-  document.addEventListener("copy", () => {
+-    if (!shouldShow()) return;
++  document.addEventListener("copy", (event) => {
++    if (!shouldShow() || !document.hasFocus() || event.isTrusted === false) return;
+     react("encouragement", 2000, pick(lines().copy));
+     tellApp("copy_paste");
+   }, true);
+ 
+-  document.addEventListener("paste", () => {
+-    if (!shouldShow()) return;
++  document.addEventListener("paste", (event) => {
++    if (!shouldShow() || !document.hasFocus() || event.isTrusted === false) return;
+     react("encouragement", 2000, pick(lines().paste));
+     tellApp("copy_paste");
+   }, true);
+ 
+   document.addEventListener("visibilitychange", () => {
+     if (document.visibilityState === "hidden") {
+-      st.hiddenAt = Date.now();
+       stop();
+       savePosition();
+     } else if (shouldShow()) {
+-      if (st.hiddenAt && Date.now() - st.hiddenAt > WELCOME_AFTER_MS) {
+-        // A little sulk about being left alone, then happy to see you.
+-        react("sad", 1800, pick(lines().missed));
+-        setTimeout(() => react("happy", 1600, pick(lines().welcome)), 1800);
+-      }
++      // Tab visibility is not physical absence. Camera events handle returns.
+       start();
+     }
+   });
+@@ -796,6 +793,11 @@
+       if (!chatPanel.hidden) renderChat();
+     }
+     if (changes.lastFed) lastFed = changes.lastFed.newValue ?? Date.now();
++    if (changes.voicePlayback) {
++      const line = changes.voicePlayback.newValue;
++      const remaining = line ? line.seconds * 1000 - (Date.now() - line.startedAt) : 0;
++      if (line?.character === prefs.character && remaining > 0) say(line.text ?? "", remaining);
++    }
+     if (!changes.buddy) return;
+     const previous = prefs;
+     prefs = { character: null, visible: true, ...changes.buddy.newValue };
+--- a/browser_extension/content.js
++++ b/browser_extension/content.js
+@@ -8,7 +8,8 @@
+ // background script forwards heartbeats to the companion brain in the Buddy
+ // app so it knows what you're doing in the browser right now.
+ //
+-// Only counts are recorded — never the keys pressed or the text copied.
++// Only aggregate counts and known shortcut names are sent — never typed text
++// or clipboard contents. Shortcut events bypass the regular heartbeat delay.
+ 
+ (() => {
+   const api = globalThis.browser ?? globalThis.chrome;
+@@ -18,6 +19,7 @@
+   let session = newSession();
+   let activeSince = isInView() ? Date.now() : null;
+   let sent = zeroCounts();
++  let lastInputAt = null;
+ 
+   function newSession() {
+     return {
+@@ -30,12 +32,13 @@
+       keys: 0,
+       copies: 0,
+       pastes: 0,
++      undos: 0,
+       maxScrollPct: 0,
+     };
+   }
+ 
+   function zeroCounts() {
+-    return { activeMs: 0, clicks: 0, keys: 0, copies: 0, pastes: 0 };
++    return { activeMs: 0, clicks: 0, keys: 0, copies: 0, pastes: 0, undos: 0 };
+   }
+ 
+   function currentActiveMs() {
+@@ -48,7 +51,7 @@
+     const now = { ...session, activeMs: currentActiveMs() };
+     const delta = {};
+     for (const key of Object.keys(sent)) delta[key] = Math.max(0, now[key] - sent[key]);
+-    sent = { activeMs: now.activeMs, clicks: now.clicks, keys: now.keys, copies: now.copies, pastes: now.pastes };
++    sent = { activeMs: now.activeMs, clicks: now.clicks, keys: now.keys, copies: now.copies, pastes: now.pastes, undos: now.undos };
+     try {
+       api.runtime.sendMessage({
+         type: "heartbeat",
+@@ -57,6 +60,8 @@
+           title: document.title,
+           maxScrollPct: session.maxScrollPct,
+           left,
++          inputAgeMs: lastInputAt === null ? null : Math.max(0, performance.now() - lastInputAt),
++          shortcutsImmediate: true,
+           ...delta,
+         },
+       });
+@@ -145,10 +150,51 @@
+ 
+   // --- Activity counters ----------------------------------------------------
+ 
+-  document.addEventListener("click", () => session.clicks++, true);
+-  document.addEventListener("keydown", () => session.keys++, true);
+-  document.addEventListener("copy", () => session.copies++, true);
+-  document.addEventListener("paste", () => session.pastes++, true);
++  function noteInput(event) {
++    if (!isInView() || event?.isTrusted === false) return false;
++    lastInputAt = performance.now();
++    return true;
++  }
++
++  const quickAt = {};
++  function shortcut(name, event) {
++    if (!noteInput(event) || event.repeat) return;
++    const at = performance.now();
++    if (at - (quickAt[name] ?? -Infinity) < 100) return; // keydown + clipboard event
++    quickAt[name] = at;
++    if (name === "undo") session.undos++;
++    try {
++      Promise.resolve(api.runtime.sendMessage({ type: "shortcut", shortcut: name })).catch(() => {});
++    } catch {}
++  }
++  document.addEventListener("keydown", (event) => {
++    if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.repeat) return;
++    const name = { c: "copy", v: "paste", z: "undo" }[String(event.key).toLowerCase()];
++    if (name) shortcut(name, event);
++  }, true);
++  document.addEventListener("copy", event => shortcut("copy", event), true);
++  document.addEventListener("paste", event => shortcut("paste", event), true);
++
++  // Read-only voice delivery also works when the floating buddy is hidden.
++  // Only the focused page polls; no keyboard/mouse activity is invented.
++  let voicePollPending = false;
++  setInterval(async () => {
++    if (!isInView() || voicePollPending) return;
++    voicePollPending = true;
++    try { await api.runtime.sendMessage({ type: "appState" }); }
++    catch {} finally { voicePollPending = false; }
++  }, 1000);
++
++  for (const [type, counter] of Object.entries({ click: "clicks", keydown: "keys", copy: "copies", paste: "pastes" })) {
++    document.addEventListener(type, (event) => {
++      if (noteInput(event)) session[counter]++;
++    }, true);
++  }
++  // Store only the time of movement, not mouse positions or typed text.
++  document.addEventListener("pointermove", noteInput, { passive: true, capture: true });
++  document.addEventListener("pointerdown", noteInput, { passive: true, capture: true });
++  document.addEventListener("wheel", noteInput, { passive: true, capture: true });
++  document.addEventListener("touchmove", noteInput, { passive: true, capture: true });
+   document.addEventListener(
+     "scroll",
+     () => {
+--- a/browser_extension/manifest.json
++++ b/browser_extension/manifest.json
+@@ -1,7 +1,7 @@
+ {
+   "manifest_version": 3,
+   "name": "Buddy Activity Tracker",
+-  "version": "0.5.0",
++  "version": "0.5.3",
+   "description": "A cat girl or cat boy buddy that hangs out in your browser, reacts to what you do, and cheers you on.",
+   "icons": {
+     "16": "icons/icon-16.png",
+@@ -10,7 +10,8 @@
+     "128": "icons/icon-128.png"
+   },
+   "permissions": [
+-    "storage"
++    "storage",
++    "offscreen"
+   ],
+   "host_permissions": [
+     "http://127.0.0.1/*",
+@@ -28,6 +29,7 @@
+     "service_worker": "background.js",
+     "scripts": [
+       "characters.js",
++      "voice-player.js",
+       "background.js"
+     ]
+   },
+--- a/browser_extension/popup.html
++++ b/browser_extension/popup.html
+@@ -68,6 +68,7 @@
+   <label><input type="checkbox" id="visible"> Show on pages</label>
+   <p id="pets"></p>
+   <p id="app-status">Checking the Buddy app…</p>
++  <label><input type="checkbox" id="voice-on" checked> Voice</label>
+   <a class="app-link" href="http://127.0.0.1:8765/" target="_blank" rel="noopener">Open Buddy app</a>
+   <script src="characters.js"></script>
+   <script src="popup.js"></script>
+--- a/browser_extension/popup.js
++++ b/browser_extension/popup.js
+@@ -6,6 +6,8 @@
+ const buttons = [...document.querySelectorAll(".choice")];
+ const visible = document.getElementById("visible");
+ const pets = document.getElementById("pets");
++const voiceOn = document.getElementById("voice-on");
++voiceOn.addEventListener("change", () => api.storage.local.set({ voiceOn: voiceOn.checked }));
+ 
+ document.head.append(Object.assign(document.createElement("style"), { textContent: B.ANIMATION_CSS }));
+ 
+@@ -76,7 +78,8 @@
+   appStatus.textContent = `${name} feels ${state.pet.mood}: ${state.message}`;
+ });
+ 
+-api.storage.local.get(["buddy", "pets"]).then(({ buddy, pets: count = 0 }) => {
++api.storage.local.get(["buddy", "pets", "voiceOn"]).then(({ buddy, pets: count = 0, voiceOn: enabled = true }) => {
++  voiceOn.checked = enabled;
+   prefs = { character: null, visible: true, ...buddy };
+   if (count) pets.textContent = `Headpats given: ${count}`;
+   render();
+--- /dev/null
++++ b/browser_extension/voice-offscreen.html
+@@ -0,0 +1,3 @@
++<!doctype html>
++<html lang="en"><head><meta charset="utf-8"><title>Buddy voice playback</title></head>
++<body><script src="voice-player.js"></script><script src="voice-offscreen.js"></script></body></html>
+--- /dev/null
++++ b/browser_extension/voice-offscreen.js
+@@ -0,0 +1,10 @@
++const voiceApi = globalThis.browser ?? globalThis.chrome;
++voiceApi.runtime.onMessage.addListener((message, sender, respond) => {
++  if (message?.target !== "buddy-audio" || sender.id !== voiceApi.runtime.id) return;
++  if (message.type === "stop") {
++    respond(BuddyAudio.stop());
++  } else if (message.type === "play") {
++    BuddyAudio.play(message).then(respond, error => respond({ played: false, error: String(error) }));
++    return true;
++  }
++});
+--- /dev/null
++++ b/browser_extension/voice-player.js
+@@ -0,0 +1,35 @@
++// A single audio element in an extension page. Chromium loads this in its
++// offscreen document; Firefox can use its existing background page.
++(() => {
++  let audio;
++  let generation = 0;
++  globalThis.BuddyAudio = {
++    async play({ url, interrupt = false }) {
++      const parsed = new URL(url);
++      if (parsed.origin !== "http://127.0.0.1:8765" || !/^\/voice\/[A-Za-z0-9]+\.mp3$/.test(parsed.pathname)) {
++        throw new Error("Invalid Buddy voice clip");
++      }
++      audio ??= new Audio();
++      if (!interrupt && !audio.paused && !audio.ended) return { played: false, reason: "busy" };
++      const own = ++generation;
++      audio.pause();
++      audio.src = parsed.href;
++      let timeout;
++      try {
++        await Promise.race([audio.play(), new Promise((_, reject) => {
++          timeout = setTimeout(() => reject(new Error("Buddy audio startup timed out")), 3000);
++        })]);
++      } catch (error) {
++        if (own === generation) { audio.pause(); audio.removeAttribute("src"); }
++        throw error;
++      } finally { clearTimeout(timeout); }
++      return { played: own === generation, duration: Number.isFinite(audio.duration) ? audio.duration : null };
++    },
++    stop() {
++      generation++;
++      audio?.pause();
++      if (audio) audio.removeAttribute("src");
++      return { stopped: true };
++    },
++  };
++})();
+--- a/build_extension.py
++++ b/build_extension.py
+@@ -103,12 +103,14 @@
+         # Firefox runs background.scripts as an event page and has no
+         # service worker support for extensions.
+         m.pop("minimum_chrome_version", None)
++        m["permissions"] = [p for p in m["permissions"] if p != "offscreen"]
+         m["background"] = {"scripts": scripts}
+         m["browser_specific_settings"] = {
+             key: settings[key] for key in ("gecko", "gecko_android") if key in settings
+         }
+     elif target == "safari":
+         m.pop("minimum_chrome_version", None)
++        m["permissions"] = [p for p in m["permissions"] if p != "offscreen"]
+         m["background"] = {"service_worker": worker}
+         if "safari" in settings:
+             m["browser_specific_settings"] = {"safari": settings["safari"]}
+--- a/screen_behavior/awareness/browser.py
++++ b/screen_behavior/awareness/browser.py
+@@ -30,6 +30,7 @@
+     active_seconds_by_host: dict[str, float] = field(default_factory=dict)
+     total_copies: int = 0
+     total_pastes: int = 0
++    total_undos: int = 0
+ 
+ 
+ def _count(payload: dict, key: str) -> int:
+@@ -67,6 +68,7 @@
+         self._by_host: dict[str, float] = {}
+         self._total_copies = 0
+         self._total_pastes = 0
++        self._total_undos = 0
+         self._lock = Lock()
+ 
+     def record(self, payload: dict[str, Any]) -> None:
+@@ -91,6 +93,7 @@
+             self._events.append((now, clicks, keys, copies, pastes))
+             self._total_copies += copies
+             self._total_pastes += pastes
++            self._total_undos += _count(payload, "undos")
+ 
+             if host:
+                 self._by_host[host] = self._by_host.get(host, 0.0) + active_seconds
+@@ -129,6 +132,7 @@
+                 active_seconds_by_host=dict(self._by_host),
+                 total_copies=self._total_copies,
+                 total_pastes=self._total_pastes,
++                total_undos=self._total_undos,
+             )
+ 
+     def _prune(self, now: float) -> None:
+--- a/screen_behavior/awareness/service.py
++++ b/screen_behavior/awareness/service.py
+@@ -174,6 +174,8 @@
+             counts[Shortcut.COPY] = browser.total_copies
+         if browser.total_pastes:
+             counts[Shortcut.PASTE] = browser.total_pastes
++        if browser.total_undos:
++            counts[Shortcut.UNDO] = browser.total_undos
+         return KeyboardActivity(
+             monitoring_available=True,
+             typing_active=since_key is not None and since_key <= 7.0,
+--- a/screen_behavior/awareness/user_state.py
++++ b/screen_behavior/awareness/user_state.py
+@@ -91,7 +91,7 @@
+         """The instantaneous state, before stability is applied."""
+         idle = screen.idle_seconds
+ 
+-        if present is False or idle >= self._away_after:
++        if present is False or (present is not True and idle >= self._away_after):
+             return UserState.AWAY
+         if idle >= self._idle_after or screen.activity == ActivityType.IDLE:
+             return UserState.IDLE
+--- /dev/null
++++ b/screen_behavior/tests/buddy_runtime.cjs
+@@ -0,0 +1,157 @@
++// Execute the real buddy.js with a small DOM/browser mock. This is a runtime
++// regression check, not a replacement for testing in an installed browser.
++const fs = require("fs");
++const path = require("path");
++const vm = require("vm");
++const assert = require("node:assert/strict");
++const rootDir = process.argv[2];
++let clock = 1000;
++let raf;
++let shadow;
++let state = {behavior: "study_with_user", onpage_mode: "idle", animation: "encouragement", message: "Studying with you"};
++const intervals = [];
++const events = {};
++const documentEvents = {};
++const requests = [];
++const on = (map, type, callback) => (map[type] ??= []).push(callback);
++class Element {
++  constructor(name = "") {
++    this.name = name;
++    this.children = new Map();
++    this.listeners = {};
++    this.style = {};
++    this.dataset = {};
++    this.hidden = true;
++    this.textContent = "";
++    this.src = "";
++    this.value = "";
++    this.naturalWidth = 300;
++    this.classList = {add() {}, remove() {}, toggle() {}};
++  }
++  querySelector(selector) {
++    if (!this.children.has(selector)) this.children.set(selector, new Element(selector));
++    return this.children.get(selector);
++  }
++  querySelectorAll(selector) {
++    if (this.name === ".picker" && selector === "button") {
++      return ["girl", "boy"].map(character => {
++        const button = this.querySelector(character);
++        button.dataset.char = character;
++        return button;
++      });
++    }
++    return [];
++  }
++  attachShadow() { shadow = new Element("shadow"); return shadow; }
++  addEventListener(type, callback) { on(this.listeners, type, callback); }
++  append() {}
++  prepend() {}
++  remove() {}
++  replaceChildren() {}
++  setAttribute() {}
++  setPointerCapture() {}
++  focus() {}
++  contains() { return false; }
++  getBoundingClientRect() { return {left: 500, top: 100, right: 700, bottom: 400}; }
++}
++class FakeDate extends Date { static now() { return clock; } }
++const stored = {buddy: {character: "girl", visible: true}, lastFed: 1, chat: []};
++const sandbox = {
++  console,
++  Date: FakeDate,
++  performance: {now: () => clock},
++  innerWidth: 1200,
++  innerHeight: 800,
++  location: {hostname: "example.com", port: ""},
++  matchMedia: () => ({matches: true}),
++  Image: class { constructor() { this.src = ""; } },
++  setInterval: (callback, ms) => intervals.push({callback, ms}),
++  setTimeout: () => 1,
++  clearTimeout() {},
++  requestAnimationFrame: callback => { raf = callback; },
++  addEventListener: (type, callback) => on(events, type, callback),
++  document: {
++    documentElement: new Element("html"),
++    visibilityState: "visible",
++    hasFocus: () => true,
++    title: "Test page",
++    createElement: name => new Element(name),
++    addEventListener: (type, callback) => on(documentEvents, type, callback),
++  },
++  chrome: {
++    runtime: {
++      getURL: relative => "chrome-extension://test/" + relative,
++      sendMessage: async message => {
++        requests.push(message);
++        if (message.type === "appState") return {...state};
++        if (message.type === "interact") return {accepted: true};
++        throw new Error("Unexpected message type: " + message.type);
++      },
++    },
++    storage: {
++      local: {get: async () => ({...stored}), set: async () => {}},
++      onChanged: {addListener() {}},
++    },
++  },
++};
++sandbox.window = sandbox;
++sandbox.top = sandbox;
++const context = vm.createContext(sandbox);
++for (const file of ["characters.js", "buddy.js"]) {
++  vm.runInContext(fs.readFileSync(path.join(rootDir, "browser_extension", file), "utf8"), context, {filename: file});
++}
++async function settle() { for (let i = 0; i < 8; i++) await Promise.resolve(); }
++async function poll() {
++  await intervals.find(item => item.ms === 4000).callback();
++  await settle();
++}
++function frame(ms = 16) { clock += ms; assert.equal(typeof raf, "function"); raf(clock); }
++async function main() {
++  await settle();
++  const wrap = shadow.querySelector(".wrap");
++  const figure = wrap.querySelector(".buddy-figure");
++  const bubble = shadow.querySelector(".bubble");
++  assert.equal(wrap.hidden, false);
++  frame();
++  const atRest = wrap.style.transform;
++  for (let i = 0; i < 8; i++) { await poll(); frame(3000); }
++  assert.equal(wrap.style.transform, atRest, "brain-controlled idle must not start random wandering");
++  state = {...state, behavior: "sleep", onpage_mode: "sleep", animation: "tired"};
++  await poll(); frame();
++  assert.ok(figure.src.endsWith("/tired.png"));
++  for (const callback of events.mousemove ?? []) callback({clientX: 100, clientY: 100});
++  frame();
++  assert.ok(figure.src.endsWith("/tired.png"), "mouse motion must not override the current brain decision");
++  state = {...state, behavior: "ask_for_attention", onpage_mode: "attention", animation: "sad", message: "A little attention?"};
++  await poll(); frame();
++  assert.equal(bubble.textContent, state.message);
++  state = {...state, behavior: "study_with_user", onpage_mode: "idle", animation: "encouragement"};
++  await poll(); frame();
++  const focusedPosition = wrap.style.transform;
++  for (let i = 0; i < 5; i++) { await poll(); frame(3000); }
++  assert.equal(wrap.style.transform, focusedPosition);
++  // Tab switching alone must not invent a missed-you/return reaction.
++  sandbox.document.visibilityState = "hidden";
++  for (const callback of documentEvents.visibilitychange ?? []) callback();
++  clock += 61000;
++  sandbox.document.visibilityState = "visible";
++  for (const callback of documentEvents.visibilitychange ?? []) callback();
++  await settle(); frame();
++  assert.ok(figure.src.endsWith("/encouragement.png"), "tab return must keep the brain pose");
++  // Programmatic clipboard events must not be reported as real input.
++  for (const callback of documentEvents.copy ?? []) callback({isTrusted: false});
++  for (const callback of documentEvents.paste ?? []) callback({isTrusted: false});
++  // A responding HTTP server cannot make an old brain decision fresh.
++  state = {...state, behavior: "sleep", onpage_mode: "sleep", animation: "tired", decision_age_ms: 12000};
++  await poll();
++  for (const callback of events.mousemove ?? []) callback({clientX: 100, clientY: 100});
++  frame();
++  assert.ok(!figure.src.endsWith("/tired.png"), "stale brain output must release control");
++  state = {...state, decision_age_ms: 0};
++  await poll(); frame();
++  assert.ok(figure.src.endsWith("/tired.png"), "a new brain decision must regain control");
++  assert.ok(requests.length > 0);
++  assert.ok(requests.every(message => message.type === "appState"));
++  console.log(JSON.stringify({started: true, brainControlled: true, sleepRespected: true, attentionCaption: true}));
++}
++main().catch(error => { console.error(error); process.exitCode = 1; });
+--- a/screen_behavior/tests/test_extension_js.py
++++ b/screen_behavior/tests/test_extension_js.py
+@@ -16,6 +16,8 @@
+ HARNESS = r"""
+ const fs = require("fs");
+ const sent = [];
++let clock = 1000;
++Object.defineProperty(globalThis, "performance", {value: {now: () => clock}, configurable: true});
+ const listeners = {};
+ const intervals = [];
+ const on = (target) => (type, fn) => ((listeners[target + ":" + type] ??= []).push(fn));
+@@ -44,6 +46,13 @@
+ intervals.find((t) => t.ms === 5000).fn();   // first heartbeat
+ fire("document", "paste");
+ intervals.find((t) => t.ms === 5000).fn();   // second heartbeat: deltas only
++clock += 5000;
++intervals.find((t) => t.ms === 5000).fn();   // no input: age keeps growing
++clock += 5000;
++fire("document", "keydown", {isTrusted: false});  // website-generated event
++intervals.find((t) => t.ms === 5000).fn();
++fire("document", "pointermove", {isTrusted: true}); // real mouse activity
++intervals.find((t) => t.ms === 5000).fn();
+ fire("window", "pagehide", { persisted: false }); // leaving the page
+ 
+ console.log(JSON.stringify(sent));
+@@ -80,6 +89,19 @@
+         self.assertTrue(self.beats[-1]["left"])
+         self.assertIn("session", [m["type"] for m in self.messages])
+ 
++    def test_polls_do_not_reset_the_age_of_input(self):
++        self.assertEqual(self.beats[2]["inputAgeMs"], 5000)
++        self.assertEqual(self.beats[2]["keys"], 0)
++        self.assertEqual(self.beats[3]["inputAgeMs"], 10000)
++
++    def test_synthetic_keys_are_not_activity(self):
++        self.assertEqual(self.beats[3]["keys"], 0)
++
++    def test_pointer_movement_is_real_activity_without_recording_positions(self):
++        self.assertEqual(self.beats[4]["inputAgeMs"], 0)
++        self.assertNotIn("x", self.beats[4])
++        self.assertNotIn("y", self.beats[4])
++
+     def test_python_tracker_accepts_extension_heartbeats(self):
+         tracker = BrowserActivityTracker()
+         for beat in self.beats:
+@@ -94,6 +116,14 @@
+ 
+ @unittest.skipUnless(NODE, "node is not installed")
+ class ExtensionSyntaxTests(unittest.TestCase):
++    def test_buddy_runtime_consumes_the_app_state_contract(self):
++        result = subprocess.run(
++            [NODE, str(Path(__file__).with_name("buddy_runtime.cjs")), str(ROOT)],
++            capture_output=True, text=True, timeout=20,
++        )
++        self.assertEqual(result.returncode, 0, result.stderr)
++        self.assertTrue(json.loads(result.stdout)["brainControlled"])
++
+     def test_all_scripts_parse(self):
+         for path in [*ROOT.glob("browser_extension/*.js"), *ROOT.glob("UI/*.js")]:
+             with self.subTest(path.name):
+--- a/screen_behavior/tests/test_user_state.py
++++ b/screen_behavior/tests/test_user_state.py
+@@ -164,6 +164,12 @@
+             UserState.AWAY,
+         )
+ 
++    def test_body_tracking_presence_prevents_inferred_away(self):
++        self.assertEqual(
++            self.tracker.classify(screen(idle=900), present=True),
++            UserState.IDLE,
++        )
++
+     def test_keyboard_unavailable_falls_back_to_idle_time(self):
+         context = screen(idle=3)
+         context.keyboard = KeyboardActivity(monitoring_available=False)
+--- /dev/null
++++ b/start_buddy.py
+@@ -0,0 +1,53 @@
++"""Beginner-friendly launcher for the existing local browser app."""
++import socket
++import subprocess
++import sys
++from pathlib import Path
++
++
++def main():
++    if sys.version_info < (3, 11):
++        print("Buddy needs Python 3.11 or newer. Python 3.12 is suitable.")
++        print("Your Python is: " + sys.version.split()[0])
++        return 1
++
++    root = Path(__file__).resolve().parent
++    if not (root / "UI" / "server.py").is_file():
++        print("Extract the entire ZIP first. Keep start_buddy.py inside group-2.")
++        return 1
++
++    # The same guard used by the extension packager catches unfinished merges
++    # before a broken JavaScript file is sent to the browser again.
++    from build_extension import check, load_manifest
++    try:
++        manifest = load_manifest()
++        check(manifest)
++    except SystemExit as exc:
++        print("Buddy could not start: " + str(exc))
++        print("Use the complete corrected folder; do not combine different ZIPs.")
++        return 1
++
++    try:
++        with socket.create_connection(("127.0.0.1", 8765), timeout=0.5):
++            print("Port 8765 is already in use.")
++            print("Close the previous Buddy terminal (Ctrl+C), then start this copy.")
++            return 1
++    except OSError:
++        pass
++
++    print("Starting Buddy " + manifest["version"] + "...", flush=True)
++    print("Python: " + sys.executable, flush=True)
++    print("Your browser will open http://127.0.0.1:8765", flush=True)
++    print("Keep this window open. Press Ctrl+C here to stop Buddy.", flush=True)
++    try:
++        return subprocess.call(
++            [sys.executable, str(root / "UI" / "server.py"),
++             "--open", "--no-native-awareness", *sys.argv[1:]],
++            cwd=root,
++        )
++    except KeyboardInterrupt:
++        return 130
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())

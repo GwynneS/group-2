@@ -1,0 +1,8 @@
+{
+  "idle_before_empty_heartbeat": 400,
+  "idle_after_empty_heartbeat": 400,
+  "brain_presence_after_absent_camera": false,
+  "idle_after_present_camera_frame": 400,
+  "missing_renderer_fields": [],
+  "voice_field_preserved": true
+}
