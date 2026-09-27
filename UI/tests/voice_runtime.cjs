@@ -51,6 +51,7 @@ if (browser === "chromium") {
     creations++;
     open = true;
     const context = vm.createContext({chrome: api, Audio: FakeAudio, URL, setTimeout, clearTimeout});
+    load(context, "config.js");
     load(context, "voice-player.js");
     load(context, "voice-offscreen.js");
   }};
@@ -76,7 +77,7 @@ const fetch = async (url, options = {}) => {
 };
 const background = vm.createContext({console, chrome:api, fetch, AbortSignal, URL, Date:FakeDate, setTimeout, clearTimeout,
   ...(browser === "firefox" ? {Audio:FakeAudio} : {})});
-for (const file of ["characters.js", "voice-player.js", "background.js"]) load(background, file);
+for (const file of ["config.js", "characters.js", "voice-player.js", "background.js"]) load(background, file);
 async function settle() { for (let i=0; i<30; i++) await Promise.resolve(); }
 async function main() {
   // The Buddy website is not loaded; the floating buddy preference is hidden.

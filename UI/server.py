@@ -16,7 +16,8 @@ prints the URL instead.
 Routes
     GET  /                              UI/index.html (and other files in UI/)
     GET  /extension/<file>              files from browser_extension/ (characters.js, art/...)
-    GET  /download/buddy-extension.zip  the extension, zipped fresh on each request
+    GET  /download/buddy-extension.zip  the extension, zipped fresh on each request and
+                                        set to talk to the site it's downloaded from
     GET  /voice/<file>                  voice clips from HackMp3s/
     GET  /api/voices                    {trigger: {"girl": [{"url", "text"}...], "boy": [...]}}
     GET  /api/status                    what's running: AI, brain awareness source, camera,
@@ -69,9 +70,13 @@ import zipfile
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlsplit
 
 HOST = "127.0.0.1"
-PORT = 8765  # keep in sync with APP_ORIGINS in browser_extension/background.js
+PORT = 8765
+# The extension's default Buddy app (browser_extension/config.js). Downloads
+# from anywhere else get that address instead (build_extension_zip).
+LOCAL_APP_URL = f"http://{HOST}:{PORT}"
 
 UI_DIR = Path(__file__).resolve().parent
 EXT_DIR = UI_DIR.parent / "browser_extension"
@@ -484,13 +489,53 @@ def extension_version() -> str:
         return "unknown"
 
 
-def build_extension_zip() -> bytes:
+def request_origin(headers) -> str | None:
+    """The site's address as the browser asked for it: the Host header, or
+    X-Forwarded-Host/Proto behind Vercel or a tunnel. None if malformed."""
+    host = (headers.get("X-Forwarded-Host") or headers.get("Host") or "").split(",")[0].strip().lower()
+    scheme = (headers.get("X-Forwarded-Proto") or "http").split(",")[0].strip().lower()
+    if scheme not in ("http", "https") or not re.fullmatch(r"[a-z0-9.-]+(:\d{1,5})?", host):
+        return None
+    return f"{scheme}://{host}"
+
+
+def point_config(source: str, app_url: str) -> str:
+    """browser_extension/config.js, talking to app_url."""
+    text, count = re.subn(r'url: "[^"]*"', lambda _: "url: " + json.dumps(app_url), source, count=1)
+    if count != 1:
+        raise ValueError("browser_extension/config.js has no url to set")
+    return text
+
+
+def point_manifest(source: str, app_url: str) -> str:
+    """browser_extension/manifest.json, allowed to reach app_url and to run
+    bridge.js on its pages."""
+    manifest = json.loads(source)
+    parts = urlsplit(app_url)
+    pattern = f"{parts.scheme}://{parts.hostname}/*"  # match patterns can't name a port
+    manifest["host_permissions"] = [pattern]
+    for script in manifest["content_scripts"]:
+        if "bridge.js" in script["js"]:
+            script["matches"] = [pattern]
+    return json.dumps(manifest, indent=2) + "\n"
+
+
+def build_extension_zip(app_url: str = LOCAL_APP_URL) -> bytes:
+    """browser_extension/, zipped. For another app_url (the site it's
+    downloaded from, e.g. on Vercel), config.js and manifest.json point there."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for path in sorted(EXT_DIR.rglob("*")):
             rel = path.relative_to(EXT_DIR)
-            if path.is_file() and not any(part.startswith(".") for part in rel.parts):
-                zf.write(path, Path("buddy-extension") / rel)
+            if not path.is_file() or any(part.startswith(".") for part in rel.parts):
+                continue
+            name = str(Path("buddy-extension") / rel)
+            if app_url != LOCAL_APP_URL and rel == Path("config.js"):
+                zf.writestr(name, point_config(path.read_text(), app_url))
+            elif app_url != LOCAL_APP_URL and rel == Path("manifest.json"):
+                zf.writestr(name, point_manifest(path.read_text(), app_url))
+            else:
+                zf.write(path, name)
     return buf.getvalue()
 
 
@@ -538,7 +583,7 @@ class Handler(SimpleHTTPRequestHandler):
             return self.stream_camera()
 
         if path == "/download/buddy-extension.zip":
-            data = build_extension_zip()
+            data = build_extension_zip(request_origin(self.headers) or LOCAL_APP_URL)
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/zip")
             self.send_header("Content-Disposition", 'attachment; filename="buddy-extension.zip"')

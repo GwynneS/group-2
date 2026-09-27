@@ -1,13 +1,16 @@
 """Browser/camera boundary regressions. Camera and browser APIs are mocked;
 the HTTP tests use the real local server and the real extension relay scripts.
 """
+import io
 import json
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unittest
+import zipfile
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
@@ -359,6 +362,25 @@ class VoiceAndPreviewRuntimeTests(unittest.TestCase):
 
     def test_website_body_tracking_follows_tracking_py(self):
         self.assertTrue(self.run_runtime("body_runtime.cjs")["rules"])
+
+    def test_extension_talks_to_the_site_it_was_downloaded_from(self):
+        local = self.run_runtime("config_runtime.cjs")
+        self.assertEqual(local["url"], server.LOCAL_APP_URL)
+        self.assertTrue(local["local"])
+        self.assertEqual(local["owns"], ["http://127.0.0.1:8765/", "http://localhost:8765/"])
+
+        with zipfile.ZipFile(io.BytesIO(server.build_extension_zip("https://buddy.example.app"))) as zf, \
+                tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / "config.js"
+            config.write_bytes(zf.read("buddy-extension/config.js"))
+            manifest = json.loads(zf.read("buddy-extension/manifest.json"))
+            deployed = self.run_runtime("config_runtime.cjs", str(config))
+        self.assertEqual(deployed["url"], "https://buddy.example.app")
+        self.assertFalse(deployed["local"])
+        self.assertEqual(deployed["owns"], ["https://buddy.example.app/"])
+        self.assertEqual(manifest["host_permissions"], ["https://buddy.example.app/*"])
+        bridge = next(s for s in manifest["content_scripts"] if "bridge.js" in s["js"])
+        self.assertEqual(bridge["matches"], ["https://buddy.example.app/*"])
 
 
 if __name__ == "__main__":

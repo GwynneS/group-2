@@ -28,6 +28,7 @@
   "background": {
     "service_worker": "background.js",
     "scripts": [
+      "config.js",
       "characters.js",
       "voice-player.js",
       "background.js"
@@ -39,6 +40,7 @@
         "<all_urls>"
       ],
       "js": [
+        "config.js",
         "content.js",
         "characters.js",
         "buddy.js"
@@ -51,6 +53,7 @@
         "http://localhost/*"
       ],
       "js": [
+        "config.js",
         "bridge.js"
       ],
       "run_at": "document_start"

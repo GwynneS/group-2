@@ -6,7 +6,8 @@
   globalThis.BuddyAudio = {
     async play({ url, interrupt = false }) {
       const parsed = new URL(url);
-      if (parsed.origin !== "http://127.0.0.1:8765" || !/^\/voice\/[A-Za-z0-9]+\.mp3$/.test(parsed.pathname)) {
+      if (parsed.origin !== new URL(globalThis.BuddyApp.url).origin
+          || !/^\/voice\/[A-Za-z0-9]+\.mp3$/.test(parsed.pathname)) {
         throw new Error("Invalid Buddy voice clip");
       }
       audio ??= new Audio();

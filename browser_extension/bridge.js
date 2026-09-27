@@ -1,4 +1,4 @@
-// Runs only on the local Buddy app (http://127.0.0.1:8765, see manifest.json).
+// Runs only on the Buddy app's own page (config.js; see manifest.json).
 // Lets the app page read and change the buddy settings, send headpats and
 // chat through the extension, so the app and the buddy on other websites
 // share one state.
@@ -21,8 +21,8 @@
 // Browsing sessions recorded by content.js are deliberately not exposed here.
 
 (() => {
-  // The manifest matches every localhost port; only talk to the Buddy app's.
-  if (location.port !== "8765") return;
+  // The manifest matches every port of the app's host; only talk to the Buddy app.
+  if (!globalThis.BuddyApp.owns(location)) return;
 
   const api = globalThis.browser ?? globalThis.chrome;
   const SHARED_KEYS = ["buddy", "pets", "chat", "lastFed", "voiceOn", "voicePlayback"];

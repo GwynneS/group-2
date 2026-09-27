@@ -14,9 +14,9 @@
 //
 // When the Buddy app is running, its companion brain (screen_behavior) sets
 // the resting pose and caption: hungry, tired, lonely... based on its needs.
-// Every few seconds, the focused tab's title and host go to the app
-// (127.0.0.1 only) so the brain knows whether you're coding, studying,
-// watching videos and so on. Headpats, pokes, feeding and copy/paste are
+// Every few seconds, the focused tab's title and host go to the app (only
+// the Buddy app in config.js) so the brain knows whether you're coding,
+// studying, watching videos and so on. Headpats, pokes, feeding and copy/paste are
 // sent to the brain too.
 //
 // Preference lives in storage.local under `buddy`:
@@ -27,7 +27,7 @@
 (() => {
   if (window.top !== window || !document.documentElement) return;
   // The Buddy app page shows its own buddy; don't add a second one there.
-  if (/^(127\.0\.0\.1|localhost)$/.test(location.hostname) && location.port === "8765") return;
+  if (globalThis.BuddyApp.owns(location)) return;
 
   const api = globalThis.browser ?? globalThis.chrome;
   const B = globalThis.BuddyCharacters;

@@ -3,7 +3,7 @@
 // queued so records from several tabs closing at once don't overwrite each
 // other. Also keeps the toolbar icon in sync with the chosen buddy.
 //
-// Talks to the local Buddy app (UI/server.py) when it's running:
+// Talks to the Buddy app (UI/server.py, at config.js's address) when it answers:
 //   heartbeat  -> /api/browser-activity  counts only (clicks, keys, copies,
 //                                 pastes, scroll, active time) every 5s
 //   chat       -> /api/chat       replies in character
@@ -26,7 +26,10 @@
 //             notes it saved about the user while replying
 
 // Chrome runs this as a service worker (needs importScripts); Firefox loads
-// characters.js first via the manifest's background.scripts.
+// config.js and characters.js first via the manifest's background.scripts.
+if (typeof importScripts === "function" && !globalThis.BuddyApp) {
+  importScripts("config.js");
+}
 if (typeof importScripts === "function" && !globalThis.BuddyCharacters) {
   importScripts("characters.js");
 }
@@ -37,8 +40,8 @@ if (typeof importScripts === "function" && !globalThis.BuddyAudio) {
 const api = globalThis.browser ?? globalThis.chrome;
 const MAX_SESSIONS = 1000;
 const MAX_CHAT = 50;
-// The local Buddy app; keep in sync with PORT in UI/server.py and manifest.json.
-const APP_URL = "http://127.0.0.1:8765";
+// This computer's Buddy app, or the website this copy was downloaded from.
+const APP_URL = globalThis.BuddyApp.url;
 
 let writeQueue = Promise.resolve();
 
@@ -138,7 +141,9 @@ async function chat(text) {
     await appendChat(cleanChatEntry({ role: "buddy", text: data.reply, thought: data.thought, learned: data.learned }));
     return { reply: data.reply, source: data.source };
   } catch (err) {
-    const reply = "I can't reach the Buddy app. Start it with python3 UI/server.py and try again.";
+    const reply = BuddyApp.local
+      ? "I can't reach the Buddy app. Start it with python3 UI/server.py and try again."
+      : `I can't reach the Buddy app at ${new URL(APP_URL).host}. Try again in a moment.`;
     await appendChat({ role: "buddy", text: reply, error: true });
     return { reply, error: String(err) };
   }

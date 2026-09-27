@@ -30,13 +30,14 @@ function load(context, file) {
   vm.runInContext(fs.readFileSync(path.join(root, "browser_extension", file), "utf8"), context, {filename: file});
 }
 const background = vm.createContext({
-  console, chrome: api, AbortSignal,
+  console, chrome: api, AbortSignal, URL,
   fetch(url, options) {
     const request = fetch(base + new URL(url).pathname, options);
     pending.push(request);
     return request;
   },
 });
+load(background, "config.js");
 load(background, "characters.js");
 load(background, "background.js");
 

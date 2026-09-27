@@ -67,11 +67,14 @@ function render() {
   visible.checked = prefs.visible;
 }
 
-// Is the Buddy app (UI/server.py) running, and how is the buddy feeling?
+// Is the Buddy app (config.js) answering, and how is the buddy feeling?
 const appStatus = document.getElementById("app-status");
+document.querySelector(".app-link").href = `${BuddyApp.url}/`;
 api.runtime.sendMessage({ type: "appState" }).then((state) => {
   if (!state) {
-    appStatus.textContent = "Buddy app isn't running. Start it with python3 UI/server.py for moods, needs and chat.";
+    appStatus.textContent = BuddyApp.local
+      ? "Buddy app isn't running. Start it with python3 UI/server.py for moods, needs and chat."
+      : `Can't reach the Buddy app at ${new URL(BuddyApp.url).host} right now. Moods, needs and chat come back once it answers.`;
     return;
   }
   const name = B.CHARACTERS[prefs.character ?? "girl"].name;

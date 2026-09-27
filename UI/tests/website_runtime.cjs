@@ -39,7 +39,7 @@ function page(withExtension = false, initial = {}, backgroundVoice = true, globa
   const document = {visibilityState:"visible",hasFocus:()=>true,getElementById:el,querySelectorAll:()=>[],
     createElement:()=>new Element(),addEventListener:(type,fn)=>on(docEvents,type,fn)};
   class FakeDate extends Date {static now(){return clock;}}
-  const sandbox = {console, document, Date:FakeDate, performance:{now:()=>clock}, TextDecoder,
+  const sandbox = {console, document, Date:FakeDate, performance:{now:()=>clock}, TextDecoder, URL,
     location:{origin:"http://127.0.0.1:8765",port:"8765"}, BuddyStage:stage,
     localStorage:{getItem:key=>storage[key]??null,setItem:(key,value)=>storage[key]=value},
     addEventListener:(type,fn)=>on(events,type,fn),setTimeout:()=>1,clearTimeout(){},setInterval:()=>1,
@@ -82,6 +82,7 @@ function page(withExtension = false, initial = {}, backgroundVoice = true, globa
         Object.assign(shared,data);const diff=Object.fromEntries(Object.entries(data).map(([k,v])=>[k,{newValue:v}]));
         for(const fn of changed)fn(diff,"local");
       }},onChanged:{addListener:fn=>changed.push(fn)}}};
+    load("browser_extension/config.js");
     load("browser_extension/bridge.js");
   }
   load("UI/app.js");

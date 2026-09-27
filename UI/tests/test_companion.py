@@ -3,10 +3,12 @@
     python3 -m unittest discover -s UI/tests
 """
 
+import io
 import json
 import sys
 import threading
 import unittest
+import zipfile
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
@@ -324,6 +326,24 @@ class ServerRouteTests(unittest.TestCase):
         status, data = self.post("/api/camera", {"on": True})
         self.assertEqual(status, 409)
         self.assertIn("pip install", data["error"])
+
+    def download_extension(self, **headers):
+        with urlopen(Request(self.base + "/download/buddy-extension.zip", headers=headers), timeout=5) as res:
+            with zipfile.ZipFile(io.BytesIO(res.read())) as zf:
+                return zf.read("buddy-extension/config.js").decode(), json.loads(zf.read("buddy-extension/manifest.json"))
+
+    def test_extension_download_talks_to_the_site_it_came_from(self):
+        # Vercel sends the site's name in Host and says it's https.
+        config, manifest = self.download_extension(Host="group-2.vercel.app", **{"X-Forwarded-Proto": "https"})
+        self.assertIn('url: "https://group-2.vercel.app"', config)
+        self.assertEqual(manifest["host_permissions"], ["https://group-2.vercel.app/*"])
+
+        config, manifest = self.download_extension(Host="127.0.0.1:8765")
+        self.assertEqual(config, (server.EXT_DIR / "config.js").read_text())
+        self.assertEqual(manifest, json.loads((server.EXT_DIR / "manifest.json").read_text()))
+
+        config, _ = self.download_extension(Host='evil"; alert(1); "')
+        self.assertIn(f'url: "{server.LOCAL_APP_URL}"', config)
 
     def test_body_route_takes_the_websites_camera(self):
         status, data = self.post("/api/body", {"state": "at_desk", "present": True, "leaning_in": True})
