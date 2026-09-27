@@ -1,3 +1,0 @@
-# Optional: lets UI/server.py answer chat with Claude.
-# Without it (or without credentials) the buddy uses built-in replies.
-anthropic
