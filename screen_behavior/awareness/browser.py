@@ -30,6 +30,7 @@ class BrowserActivity:
     active_seconds_by_host: dict[str, float] = field(default_factory=dict)
     total_copies: int = 0
     total_pastes: int = 0
+    total_undos: int = 0
 
 
 def _count(payload: dict, key: str) -> int:
@@ -67,6 +68,7 @@ class BrowserActivityTracker:
         self._by_host: dict[str, float] = {}
         self._total_copies = 0
         self._total_pastes = 0
+        self._total_undos = 0
         self._lock = Lock()
 
     def record(self, payload: dict[str, Any]) -> None:
@@ -91,6 +93,7 @@ class BrowserActivityTracker:
             self._events.append((now, clicks, keys, copies, pastes))
             self._total_copies += copies
             self._total_pastes += pastes
+            self._total_undos += _count(payload, "undos")
 
             if host:
                 self._by_host[host] = self._by_host.get(host, 0.0) + active_seconds
@@ -129,6 +132,7 @@ class BrowserActivityTracker:
                 active_seconds_by_host=dict(self._by_host),
                 total_copies=self._total_copies,
                 total_pastes=self._total_pastes,
+                total_undos=self._total_undos,
             )
 
     def _prune(self, now: float) -> None:

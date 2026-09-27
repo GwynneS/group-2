@@ -103,12 +103,14 @@ def manifest_for(target: str, source: dict) -> dict:
         # Firefox runs background.scripts as an event page and has no
         # service worker support for extensions.
         m.pop("minimum_chrome_version", None)
+        m["permissions"] = [p for p in m["permissions"] if p != "offscreen"]
         m["background"] = {"scripts": scripts}
         m["browser_specific_settings"] = {
             key: settings[key] for key in ("gecko", "gecko_android") if key in settings
         }
     elif target == "safari":
         m.pop("minimum_chrome_version", None)
+        m["permissions"] = [p for p in m["permissions"] if p != "offscreen"]
         m["background"] = {"service_worker": worker}
         if "safari" in settings:
             m["browser_specific_settings"] = {"safari": settings["safari"]}

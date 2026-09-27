@@ -18,10 +18,12 @@ browser tab the extension reports, using the same activity classifier.
 from __future__ import annotations
 
 import importlib.util
+import math
 import random
 import sys
 import threading
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -33,9 +35,11 @@ from animation_bridge import ANIMATION_LABELS, animation_for_update  # noqa: E40
 from screen_behavior.awareness.models import ActivityType, RawScreenSnapshot, Shortcut, WindowInfo  # noqa: E402
 from screen_behavior.awareness.service import AwarenessService  # noqa: E402
 from screen_behavior.integration.brain import CompanionBrain  # noqa: E402
+from screen_behavior.integration.presenter import present  # noqa: E402
 from screen_behavior.pet.interactions import InteractionEffect  # noqa: E402
 
 BRAIN_TICK_SECONDS = 1.0
+BODY_STALE_SECONDS = 5.0
 
 # What each user interaction does to the pet's needs.
 INTERACTIONS = {
@@ -81,7 +85,7 @@ GONE_AFTER_SECONDS = 20.0         # out of the camera's view this long -> notInF
 INACTIVE_IN_FRAME_SECONDS = 60.0  # at the desk with no keyboard/mouse input -> onInactiveINframe
 TYPING_LINE_EVERY = (45.0, 60.0)  # seconds of typing per whenTyping line, picked at random each time
 TYPING_PAUSE_SECONDS = 8.0        # a longer pause starts the count over
-SHORTCUT_VOICE_COOLDOWN = 15.0    # copy/paste/undo still show a reaction in between
+SHORTCUT_VOICE_COOLDOWN = 1.0     # per shortcut; a different shortcut can respond immediately
 SHORTCUT_REACTIONS = {
     Shortcut.COPY: ("encouragement", "Copied! Nice find~", "CMDC"),
     Shortcut.PASTE: ("encouragement", "Pasted! You're on a roll~", "CMDV"),
@@ -97,24 +101,25 @@ class BrowserActivityBackend:
     host; that becomes the "foreground window" the activity classifier reads.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, clock=None) -> None:
         self._lock = threading.Lock()
+        self._clock = clock or time.monotonic
         self._title = ""
-        self._last_input = time.monotonic()
+        self._last_input = self._clock()
 
     def report(self, title: str, host: str) -> None:
         with self._lock:
             self._title = f"{title} - {host}".strip(" -")[:300]
-            self._last_input = time.monotonic()
 
-    def note_input(self) -> None:
+    def note_input(self, age_seconds: float = 0.0) -> None:
+        # Reporting old input again must not make it look new.
         with self._lock:
-            self._last_input = time.monotonic()
+            self._last_input = max(self._last_input, self._clock() - age_seconds)
 
     def snapshot(self) -> RawScreenSnapshot:
         with self._lock:
             title = self._title
-            idle = time.monotonic() - self._last_input
+            idle = max(0.0, self._clock() - self._last_input)
         return RawScreenSnapshot(
             idle_seconds=idle,
             foreground=WindowInfo(title=title, app_name="Google Chrome") if title else None,
@@ -216,6 +221,8 @@ class CameraWorker:
                         self._frame = jpg.tobytes()
                         self._frame_id += 1
                         self._frame_cond.notify_all()
+        except Exception as exc:
+            self.status, self.error = "error", f"Body tracking stopped: {exc}"
         finally:
             tracker.close()
             cap.release()
@@ -246,9 +253,14 @@ class CompanionService:
         # window can't talk to the extension, so this is how it knows.
         self.extension_seen = False
         self._update = None
+        self._update_at: float | None = None
+        self._updated_at: float | None = None
         self._reaction: Reaction | None = None
         self._reaction_id = 0
+        self._voice_session = uuid.uuid4().hex
+        self._voice_claim = None
         self._body = None
+        self._body_at: float | None = None
         self._last_hand_raise = 0.0
         self._last_lean_in = 0.0
         self._hand_was_raised = False
@@ -257,6 +269,9 @@ class CompanionService:
         self._inactive_announced = False
         self._shortcut_counts: dict | None = None  # from the previous tick
         self._last_shortcut_voice = float("-inf")
+        self._shortcut_voice_at: dict = {}
+        self._browser_shortcut_at: dict = {}
+        self._browser_immediate_until = 0.0
         self._typing_since: float | None = None
         self._typing_due = 0.0  # seconds of typing until the next whenTyping line
 
@@ -283,8 +298,26 @@ class CompanionService:
 
     def tick(self) -> None:
         with self._lock:
+            now = time.monotonic()
+            body = self._fresh_body(now)
+            self.brain.awareness.set_user_present(
+                bool(body.present) if body is not None else None
+            )
             self._update = self.brain.update()
-            self._voice_for_screen(self._update.screen, time.monotonic())
+            self._update_at, self._updated_at = time.monotonic(), time.time()
+            self._voice_for_screen(self._update.screen, now)
+
+    def _fresh_body(self, now: float):
+        """Only a live, stable camera can provide physical-presence evidence."""
+        if (
+            self.camera.status == "on"
+            and self._body is not None
+            and self._body_at is not None
+            and 0 <= now - self._body_at <= BODY_STALE_SECONDS
+            and not self._body.camera_moving
+        ):
+            return self._body
+        return None
 
     @property
     def keyboard_status(self) -> str:
@@ -297,22 +330,80 @@ class CompanionService:
     # --- inputs --------------------------------------------------------------
 
     def report_browser(self, title: str, host: str) -> None:
-        """The user is active on a tab (title/host), or just active (both empty)."""
+        """Page metadata only; an open page is not proof of user input."""
         if title or host:
             self.browser_backend.report(title, host)
-        else:
-            self.browser_backend.note_input()
+
+    def note_browser_input(self, age_seconds: float = 0.0) -> None:
+        """Actual input, kept separate from page metadata and camera presence."""
+        if math.isfinite(age_seconds) and age_seconds >= 0:
+            self.browser_backend.note_input(age_seconds)
 
     def record_browser_activity(self, payload: dict) -> None:
         """Extension heartbeat: tab title/host plus counts (clicks, keys,
         copies, pastes, scroll, active time). Never key identities or text."""
         self.extension_seen = True
+        if payload.get("shortcutsImmediate") is True:
+            self._browser_immediate_until = time.monotonic() + 10.0
         if not payload.get("left"):
             self.report_browser(str(payload.get("title", ""))[:200], str(payload.get("host", ""))[:100])
+        if "inputAgeMs" in payload:
+            age = payload["inputAgeMs"]
+            if isinstance(age, (int, float)) and not isinstance(age, bool):
+                self.note_browser_input(age / 1000.0)
+        else:
+            # Older extensions can still report real key/click counts.
+            # activeMs, focus and maximum scroll position are not input.
+            for key in ("clicks", "keys", "copies", "pastes"):
+                value = payload.get(key, 0)
+                if isinstance(value, (int, float)) and math.isfinite(value) and value > 0:
+                    self.note_browser_input()
+                    break
         record = getattr(self.brain.awareness, "record_browser_activity", None)
         if callable(record):
             with self._lock:
                 record(payload)
+
+    def record_browser_shortcut(self, name: str) -> bool:
+        """Immediate semantic event only: never text, key history or clipboard data."""
+        try:
+            shortcut = Shortcut(name)
+        except ValueError:
+            return False
+        if shortcut not in SHORTCUT_REACTIONS:
+            return False
+        with self._lock:
+            now = time.monotonic()
+            self.note_browser_input()
+            self._browser_immediate_until = now + 10.0
+            self._browser_shortcut_at[shortcut] = now
+            self._say_shortcut(shortcut, now)
+        return True
+
+    def _say_shortcut(self, shortcut, now: float) -> None:
+        if now - self._shortcut_voice_at.get(shortcut, float("-inf")) < SHORTCUT_VOICE_COOLDOWN:
+            return
+        self._shortcut_voice_at[shortcut] = now
+        self._last_shortcut_voice = now
+        animation, message, voice = SHORTCUT_REACTIONS[shortcut]
+        self._react(animation, message, 2.5, voice)
+
+    def claim_voice(self, key: str, owner: str, release: bool = False) -> bool:
+        """One player per live reaction across website tabs and the extension."""
+        with self._lock:
+            if release:
+                if self._voice_claim == (key, owner):
+                    self._voice_claim = None
+                    return True
+                return False
+            reaction = self._reaction
+            if (not owner or not reaction or not reaction.voice
+                    or time.monotonic() >= reaction.until
+                    or key != f"{self._voice_session}:{reaction.id}"
+                    or (self._voice_claim and self._voice_claim[0] == key)):
+                return False
+            self._voice_claim = (key, owner)
+            return True
 
     def interact(self, action: str, food: str = "fish") -> dict:
         """Apply a user interaction. Returns {accepted, message}.
@@ -321,6 +412,7 @@ class CompanionService:
         """
         with self._lock:
             if action == "feed":
+                self.browser_backend.note_input()
                 result = self.brain.feed()
                 if result.accepted:
                     self._react("happy", "Yum, fish! Thank you~", 3)
@@ -329,6 +421,7 @@ class CompanionService:
                     self._react("sad", "I'm full...", 3)
                     message = result.reason
                 self._update = self.brain.update()
+                self._update_at, self._updated_at = time.monotonic(), time.time()
                 return {"accepted": result.accepted, "message": message}
 
             effect = INTERACTIONS.get(action)
@@ -337,6 +430,7 @@ class CompanionService:
             self.brain.apply_interaction(effect)
             self.browser_backend.note_input()
             self._update = self.brain.update()
+            self._update_at, self._updated_at = time.monotonic(), time.time()
             return {"accepted": True, "message": action}
 
     def _on_body(self, snap) -> None:
@@ -344,8 +438,11 @@ class CompanionService:
         now = time.monotonic()
         with self._lock:
             self._body = snap
-            if snap.present:
-                self.browser_backend.note_input()
+            self._body_at = now
+            if snap.camera_moving:
+                self.brain.awareness.set_user_present(None)
+                return
+            self.brain.awareness.set_user_present(bool(snap.present))
             reaction = BODY_REACTIONS.get(snap.event or "")
             if reaction:
                 animation, message, seconds, effect, voice = reaction
@@ -358,8 +455,6 @@ class CompanionService:
             elif snap.away_seconds >= GONE_AFTER_SECONDS and not self._gone_announced:
                 self._gone_announced = True
                 self._react("sad", "Where did you go...?", 5, "notInFrame")
-            if snap.camera_moving:
-                return
             if snap.hand_raised and not self._hand_was_raised and now - self._last_hand_raise > HAND_RAISE_COOLDOWN:
                 self._last_hand_raise = now
                 self._react("encouragement", "Hi! *waves back*", 3)
@@ -377,15 +472,15 @@ class CompanionService:
         if keyboard is not None:
             counts = dict(keyboard.shortcut_counts)
             if self._shortcut_counts is not None:
-                new = [s for s, n in counts.items() if n > self._shortcut_counts.get(s, 0)]
+                new = [s for s, n in counts.items()
+                       if s in SHORTCUT_REACTIONS and n > self._shortcut_counts.get(s, 0)]
+                native_keys = self.brain.awareness.keyboard_tracker.snapshot().monitoring_available
+                if not native_keys and now < self._browser_immediate_until:
+                    new = []  # these browser counts already had immediate events
+                new = [s for s in new if now - self._browser_shortcut_at.get(s, float("-inf")) > 2.0]
                 if new:
                     shortcut = keyboard.last_shortcut if keyboard.last_shortcut in new else new[0]
-                    animation, message, voice = SHORTCUT_REACTIONS[shortcut]
-                    if now - self._last_shortcut_voice < SHORTCUT_VOICE_COOLDOWN:
-                        voice = None
-                    else:
-                        self._last_shortcut_voice = now
-                    self._react(animation, message, 2.5, voice)
+                    self._say_shortcut(shortcut, now)
             self._shortcut_counts = counts
 
             since_key = keyboard.seconds_since_last_keypress
@@ -398,11 +493,11 @@ class CompanionService:
             else:
                 self._typing_since = None
 
-        # idle_seconds is real keyboard/mouse input with native awareness; the
-        # browser-only backend counts sitting in view as input, so this stays quiet.
-        body = self._body
+        # Inactivity and presence are separate in both native and browser modes.
+        # A stale or uncertain camera must not trigger an in-frame voice line.
+        body = self._fresh_body(now)
         inactive = (
-            self.camera.status == "on" and body is not None and body.state == "at_desk"
+            body is not None and body.present and body.state == "at_desk"
             and screen.idle_seconds >= INACTIVE_IN_FRAME_SECONDS
             and screen.activity != ActivityType.VIDEO  # watching is fine
         )
@@ -424,7 +519,9 @@ class CompanionService:
         with self._lock:
             update = self._update
             reaction = self._reaction
-            body = self._body
+            body = self._fresh_body(time.monotonic())
+            decision_age_ms = max(0.0, time.monotonic() - self._update_at) * 1000
+            updated_at = self._updated_at
 
         pet = update.pet
         decision = update.decision
@@ -441,10 +538,14 @@ class CompanionService:
             animation, message = reaction.animation, reaction.message
             if reaction.voice:
                 # seconds: how long this reaction (and its caption) still shows.
-                voice = {"id": reaction.id, "trigger": reaction.voice, "seconds": round(reaction.until - now, 2)}
+                voice = {"id": reaction.id, "trigger": reaction.voice, "seconds": round(reaction.until - now, 2),
+                         "key": f"{self._voice_session}:{reaction.id}"}
 
         camera_on = self.camera.status == "on"
         return {
+            **present(update),
+            "updated_at": updated_at,
+            "decision_age_ms": round(decision_age_ms),
             "animation": animation,
             "message": message,
             # A line to say with this reaction; the page plays each id once.
@@ -464,6 +565,13 @@ class CompanionService:
                 "confidence": round(update.screen.activity_confidence, 2),
                 "source": self.awareness_source,
                 "user_state": getattr(update.screen.user_state, "value", None),
+                "user_present": update.screen.user_present,
+                "idle_seconds": round(update.screen.idle_seconds, 1),
+                "away_inferred": (
+                    update.screen.user_state is not None
+                    and update.screen.user_state.value == "away"
+                    and update.screen.user_present is None
+                ),
             },
             "feeding": {"food": "fish"},
             "camera": {"status": self.camera.status, "error": self.camera.error},

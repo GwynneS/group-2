@@ -38,14 +38,9 @@
   const EDGE = 8;
   const TOP_ROOM = 60; // keep space above for the speech bubble
   const SLEEP_AFTER_MS = 90_000;
-  const WELCOME_AFTER_MS = 60_000;
   const HUNGRY_AFTER_MS = 45 * 60_000;
   const APP_POLL_MS = 4000;
-<<<<<<< HEAD
-  const BRAIN_POLL_MS = 3000;
   const BRAIN_STALE_MS = 10_000;
-=======
->>>>>>> 9b0637757641b51cd0079019b108ecf6b47ec0ad
   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const LINES = {
@@ -244,8 +239,10 @@
     modeUntil: 0,
     facingLeft: false,
     lastInput: Date.now(),
-    hiddenAt: 0,
     mouse: null,
+    brain: null,
+    brainAt: 0,
+    brainMode: null,
   };
   const reaction = { emotion: null, until: 0 };
   let bubbleTimer = 0;
@@ -275,12 +272,12 @@
   }
 
   // With the app running, its brain decides hunger; otherwise a local timer does.
-  const isHungry = () => (app ? app.animation === "hungry" : Date.now() - lastFed > HUNGRY_AFTER_MS);
+  const isHungry = () => (brainFresh() ? app?.animation === "hungry" : Date.now() - lastFed > HUNGRY_AFTER_MS);
 
   function currentPose(now) {
     if (reaction.emotion && now < reaction.until) return { emotion: reaction.emotion, active: true };
     if (st.mode === "sleep") return { emotion: "tired", active: false };
-    if (app && app.animation !== "lounging") return { emotion: app.animation, active: false };
+    if (brainFresh() && app && app.animation !== "lounging") return { emotion: app.animation, active: false };
     if (isHungry()) return { emotion: "hungry", active: false };
     return { emotion: "happy", active: false };
   }
@@ -302,8 +299,9 @@
     try {
       next = await api.runtime.sendMessage({ type: "appState", page });
     } catch {}
-    // Say what the brain is up to when it changes (hungry, lonely, sleepy...).
-    if (next && next.animation !== app?.animation && next.animation !== "lounging" && now() > reaction.until) {
+    applyBrain(next);
+    // Say what a fresh brain decision is up to when it changes.
+    if (brainFresh() && next.animation !== app?.animation && next.animation !== "lounging" && now() > reaction.until) {
       say(next.message, 3500);
     }
     app = next;
@@ -359,7 +357,6 @@
     return false;
   }
 
-<<<<<<< HEAD
   // --- Companion brain -----------------------------------------------------
 
   function brainFresh() {
@@ -369,12 +366,25 @@
   // Act on the brain's decision when it changes; in between, the buddy's own
   // movement code animates it.
   function applyBrain(data) {
-    st.brain = data;
-    st.brainAt = data ? Date.now() : 0;
-    const mode = data?.onpage_mode ?? null;
-    if (!mode || mode === st.brainMode) return;
-    st.brainMode = mode;
+    const age = data?.decision_age_ms ?? 0; // older compatible servers have no age field
+    const valid = ["idle", "sleep", "wander", "follow", "cheer", "attention"].includes(data?.onpage_mode)
+      && data?.brain !== "offline" && Number.isFinite(age) && age >= 0 && age < BRAIN_STALE_MS;
+    st.brain = valid ? data : null;
+    st.brainAt = st.brain ? Date.now() - age : 0;
+    syncBrainMode();
+  }
+
+  function syncBrainMode() {
+    if (!brainFresh()) {
+      st.brainMode = null;
+      return;
+    }
     if (st.mode === "chat" || drag || !prefs.character) return;
+    const data = st.brain;
+    const mode = data.onpage_mode;
+    const key = `${data.behavior ?? ""}:${mode}`;
+    if (key === st.brainMode) return;
+    st.brainMode = key;
 
     switch (mode) {
       case "sleep":
@@ -388,6 +398,10 @@
         break;
       case "follow":
         if (st.mouse) setMode("follow", rand(4000, 6000));
+        else {
+          setMode("idle");
+          st.brainMode = null; // apply this decision once a cursor is available
+        }
         break;
       case "cheer":
         setMode("idle", 3000);
@@ -395,32 +409,20 @@
         break;
       case "attention":
         if (st.mouse) setMode("follow", 6000);
-        say(pick(lines().attention), 3500);
+        else setMode("idle");
+        if (data.message) say(data.message, 3500);
         break;
       default:
-        if (st.mode === "sleep") {
-          setMode("idle", 1500);
-          say(pick(lines().wake), 2500);
-        }
+        setMode("idle");
     }
   }
 
-  function pollBrain() {
-    if (!running) return;
-    try {
-      api.runtime.sendMessage({ type: "brainState" }).then(applyBrain, () => applyBrain(null));
-    } catch {
-      applyBrain(null); // extension reloaded; this page's script is orphaned
-    }
-  }
-  setInterval(pollBrain, BRAIN_POLL_MS);
-
-=======
->>>>>>> 9b0637757641b51cd0079019b108ecf6b47ec0ad
   function update(now, dt) {
     if (drag) return false;
+    syncBrainMode();
+    const controlled = brainFresh();
 
-    if (st.mode !== "sleep" && st.mode !== "chat" && Date.now() - st.lastInput > SLEEP_AFTER_MS) {
+    if (!controlled && st.mode !== "sleep" && st.mode !== "chat" && Date.now() - st.lastInput > SLEEP_AFTER_MS) {
       setMode("sleep");
       say("Zzz...", 0);
     }
@@ -431,14 +433,16 @@
     let moving = false;
     switch (st.mode) {
       case "idle":
-        if (now > st.modeUntil) pickNextMove();
+        if (!controlled && now > st.modeUntil) pickNextMove();
         break;
       case "wander":
         moving = !moveToward(st.tx, st.ty, 60, dt);
         if (!moving || now > st.modeUntil) {
           setMode("idle", rand(2500, 7000));
-          if (isHungry() && Math.random() < 0.4) say(pick(lines().hungry));
-          else if (Math.random() < 0.15) say(pick(lines().idle));
+          if (!controlled) {
+            if (isHungry() && Math.random() < 0.4) say(pick(lines().hungry));
+            else if (Math.random() < 0.15) say(pick(lines().idle));
+          }
         }
         break;
       case "follow": {
@@ -496,10 +500,6 @@
     last = 0;
     requestAnimationFrame(frame);
     pollApp();
-<<<<<<< HEAD
-    pollBrain();
-=======
->>>>>>> 9b0637757641b51cd0079019b108ecf6b47ec0ad
   }
 
   function stop() {
@@ -547,6 +547,7 @@
     if (!drag) return;
     const wasDrag = drag.moved;
     drag = null;
+    st.brainMode = null;
     wake();
     if (wasDrag) {
       if (chatPanel.hidden) setMode("idle", 8000);
@@ -656,6 +657,7 @@
   function closeChat() {
     chatPanel.hidden = true;
     setMode("idle", rand(1500, 3000));
+    st.brainMode = null;
   }
 
   function renderChat() {
@@ -711,7 +713,7 @@
 
   function wake() {
     st.lastInput = Date.now();
-    if (st.mode === "sleep") {
+    if (st.mode === "sleep" && !brainFresh()) {
       setMode("idle", 1500);
       react("happy", 1500, pick(lines().wake));
     }
@@ -724,29 +726,24 @@
   addEventListener("keydown", wake, { passive: true, capture: true });
   addEventListener("scroll", wake, { passive: true });
 
-  document.addEventListener("copy", () => {
-    if (!shouldShow()) return;
+  document.addEventListener("copy", (event) => {
+    if (!shouldShow() || !document.hasFocus() || event.isTrusted === false) return;
     react("encouragement", 2000, pick(lines().copy));
     tellApp("copy_paste");
   }, true);
 
-  document.addEventListener("paste", () => {
-    if (!shouldShow()) return;
+  document.addEventListener("paste", (event) => {
+    if (!shouldShow() || !document.hasFocus() || event.isTrusted === false) return;
     react("encouragement", 2000, pick(lines().paste));
     tellApp("copy_paste");
   }, true);
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") {
-      st.hiddenAt = Date.now();
       stop();
       savePosition();
     } else if (shouldShow()) {
-      if (st.hiddenAt && Date.now() - st.hiddenAt > WELCOME_AFTER_MS) {
-        // A little sulk about being left alone, then happy to see you.
-        react("sad", 1800, pick(lines().missed));
-        setTimeout(() => react("happy", 1600, pick(lines().welcome)), 1800);
-      }
+      // Tab visibility is not physical absence. Camera events handle returns.
       start();
     }
   });
@@ -796,6 +793,11 @@
       if (!chatPanel.hidden) renderChat();
     }
     if (changes.lastFed) lastFed = changes.lastFed.newValue ?? Date.now();
+    if (changes.voicePlayback) {
+      const line = changes.voicePlayback.newValue;
+      const remaining = line ? line.seconds * 1000 - (Date.now() - line.startedAt) : 0;
+      if (line?.character === prefs.character && remaining > 0) say(line.text ?? "", remaining);
+    }
     if (!changes.buddy) return;
     const previous = prefs;
     prefs = { character: null, visible: true, ...changes.buddy.newValue };

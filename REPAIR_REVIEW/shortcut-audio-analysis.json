@@ -1,0 +1,42 @@
+[
+  {
+    "clip": "CMDCF1.mp3",
+    "leading_silence_seconds": 0.223458
+  },
+  {
+    "clip": "CMDCF2.mp3",
+    "leading_silence_seconds": 0.230875
+  },
+  {
+    "clip": "CMDCM1.mp3",
+    "leading_silence_seconds": 0.238
+  },
+  {
+    "clip": "CMDCM2.mp3",
+    "leading_silence_seconds": 0.322562
+  },
+  {
+    "clip": "CMDVF1.mp3",
+    "leading_silence_seconds": 0.284187
+  },
+  {
+    "clip": "CMDVM1.mp3",
+    "leading_silence_seconds": 0.513687
+  },
+  {
+    "clip": "CMDZF1.mp3",
+    "leading_silence_seconds": 0.42075
+  },
+  {
+    "clip": "CMDZF2.mp3",
+    "leading_silence_seconds": 0.275771
+  },
+  {
+    "clip": "CMDZM1.mp3",
+    "leading_silence_seconds": 0.595521
+  },
+  {
+    "clip": "CMDZM2.mp3",
+    "leading_silence_seconds": 0.386313
+  }
+]

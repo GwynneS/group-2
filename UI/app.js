@@ -8,7 +8,7 @@
 //   chat message                by its words (see characters.js)
 //   copy / paste / undo here    encouragement                      voice: CMDC / CMDV / CMDZ
 //   idle 90s                    tired          (resting pose, until you're back)
-//   back after 60s away         sad, then happy                    voice: onReturn
+//   camera-confirmed return    happy                              voice: onReturn
 //
 // Headpats, pokes, feeding and copy/paste are also sent to the companion
 // brain (UI/server.py → screen_behavior), which updates the buddy's needs
@@ -48,6 +48,8 @@
   const cameraBadge = $("camera-badge");
   const cameraNote = $("camera-note");
   const cameraToggle = $("camera-toggle");
+  const cameraPreviewToggle = $("camera-preview-toggle");
+  const cameraTrackingStatus = $("camera-tracking-status");
   const bodyStatus = $("body-status");
   const showOnSites = $("show-on-sites");
   const voiceToggle = $("voice-on");
@@ -59,7 +61,6 @@
   const LOCAL_KEY = "buddy-app";
   const OFFLINE_TEXT = "I can't reach the Buddy app. Make sure python3 UI/server.py is running.";
   const SLEEP_AFTER_MS = 90_000;
-  const WELCOME_AFTER_MS = 60_000;
   const HUNGRY_AFTER_MS = 45 * 60_000;
 
   if (!B || !stage) {
@@ -104,10 +105,10 @@
   let pets = 0;
   let lastFed = Date.now();
   let ext = null; // { version } once the extension answers
+  let extensionVoice = false;
   let extSeen = false; // the app server has had heartbeats from the extension
   let typing = false;
   let lastInput = Date.now();
-  let hiddenAt = 0;
 
   const charKey = () => prefs.character ?? "girl";
   const buddyName = () => B.CHARACTERS[charKey()].name;
@@ -154,7 +155,10 @@
     if (e.source !== window || e.origin !== location.origin) return;
     const msg = e.data;
     if (msg?.source !== "buddy-extension") return;
-    if (msg.type === "hello" && !ext) connect(msg.version);
+    if (msg.type === "hello" && !ext) {
+      extensionVoice = msg.voice === true;
+      connect(msg.version);
+    }
     else if (msg.type === "response" && pending.has(msg.id)) {
       pending.get(msg.id)(msg.data);
       pending.delete(msg.id);
@@ -164,7 +168,9 @@
   async function connect(version) {
     ext = { version };
     renderExtStatus();
-    applyState(await request("get"));
+    const saved = await request("get");
+    if (extensionVoice && saved.voiceOn === undefined) await request("setVoice", { on: voiceOn });
+    applyState(saved);
   }
 
   function applyState(data = {}) {
@@ -172,6 +178,12 @@
     if ("pets" in data) pets = data.pets ?? 0;
     if ("chat" in data) chat = data.chat ?? [];
     if ("lastFed" in data && data.lastFed) lastFed = data.lastFed;
+    if ("voiceOn" in data) {
+      voiceOn = data.voiceOn !== false;
+      voiceToggle.checked = voiceOn;
+      if (!voiceOn) { voice.pause(); stage.setSpeech(null); }
+    }
+    if ("voicePlayback" in data) showRemoteLine(data.voicePlayback);
     renderSettings();
     renderChat();
     updateResting();
@@ -229,7 +241,7 @@
 
   const VOICE_KEY = "buddy-voice";
   const SAME_LINE_GAP_MS = 4000; // the page and the brain may both notice one thing
-  const CMD_LINE_GAP_MS = 15_000; // one copy/paste/undo line per 15s, as in UI/companion.py
+  const CMD_LINE_GAP_MS = 1000; // per shortcut; copy never delays a following paste/undo
   const voice = new Audio();
   // { trigger: { girl: [{ url, text }], boy: [...] } } from /api/voices; `text`
   // is the clip's exact words from HackMp3s/captions.json, or null.
@@ -240,6 +252,7 @@
   const lastSaid = {}; // trigger -> performance.now()
   let lineId = 0; // the line playing (or starting) now
   let lineHeldUntil = 0; // its reaction's end: the caption stays the line's until then
+  const voiceOwner = "page-" + Math.random().toString(36).slice(2);
 
   fetch("/api/voices", { cache: "no-store" })
     .then((res) => res.json())
@@ -272,14 +285,38 @@
   // being said.
   function react(emotion, ms, message, trigger, interrupt = true) {
     stage.react(emotion, ms, message);
+    playLine(emotion, ms, message, trigger, interrupt).catch(() => {});
+  }
+
+  function showRemoteLine(line) {
+    if (!line || !voiceOn) { stage.setSpeech(null); return; }
+    const remaining = line.seconds * 1000 - (Date.now() - line.startedAt);
+    if (remaining <= 0 || line.character !== charKey()) return;
+    lineId++;
+    lineHeldUntil = performance.now() + remaining;
+    stage.setSpeech(line.text ?? "");
+    endLine();
+  }
+
+  async function playLine(emotion, ms, message, trigger, interrupt, event = null) {
     if (!voiceOn || !trigger) return;
+    if (extensionVoice) {
+      await request("voice", { trigger, interrupt, event });
+      return; // the shared playback notification supplies its exact caption
+    }
     const now = performance.now();
-    // CMDC, CMDV and CMDZ share one limit.
-    const [gapKey, gap] = trigger.startsWith("CMD") ? ["CMD", CMD_LINE_GAP_MS] : [trigger, SAME_LINE_GAP_MS];
+    const [gapKey, gap] = [trigger, trigger.startsWith("CMD") ? CMD_LINE_GAP_MS : SAME_LINE_GAP_MS];
     if (now - (lastSaid[gapKey] ?? -Infinity) < gap) return;
     if (!interrupt && !voice.paused && !voice.ended) return;
     const clip = pickClip(trigger);
     if (!clip) return;
+    let claimed = false;
+    if (event?.key) {
+      const response = await fetch("/api/voice/claim", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: event.key, owner: voiceOwner }) });
+      if (!response.ok || !(await response.json()).claimed) return;
+      claimed = true;
+    }
     lastSaid[gapKey] = now;
     const id = ++lineId;
     lineHeldUntil = now + ms;
@@ -292,6 +329,8 @@
     };
     voice.src = clip.url;
     voice.play().catch(() => {
+      if (claimed) fetch("/api/voice/claim", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: event.key, owner: voiceOwner, release: true }) }).catch(() => {});
       // Browsers block sound until the page has been clicked once. Nothing
       // is said then, so the written line can show.
       if (id !== lineId) return;
@@ -333,10 +372,12 @@
     if (state) {
       const line = state.voice;
       // Lines said before this page opened stay unsaid.
-      if (lastVoiceId !== null && line && line.id !== lastVoiceId) {
-        react(state.animation, line.seconds * 1000, state.message, line.trigger, false);
+      if (lastVoiceId !== null && line && (line.key ?? line.id) !== lastVoiceId) {
+        stage.react(state.animation, line.seconds * 1000, state.message);
+        playLine(state.animation, line.seconds * 1000, state.message, line.trigger,
+                 line.trigger.startsWith("CMD"), line).catch(() => {});
       }
-      lastVoiceId = line?.id ?? lastVoiceId ?? 0;
+      lastVoiceId = line?.key ?? line?.id ?? lastVoiceId ?? 0;
     }
     needsBox.hidden = !state;
     treatButton.hidden = !state;
@@ -367,14 +408,24 @@
   // --- Camera (BodyTracking) -------------------------------------------------
 
   const BODY_WORDS = { at_desk: "At your desk", getting_up: "Getting up", away: "Away" };
+  const PREVIEW_KEY = "buddy-camera-preview";
+  let previewVisible = true;
+  try { previewVisible = localStorage.getItem(PREVIEW_KEY) !== "hidden"; } catch {}
 
   function renderCamera(state) {
     const camera = state?.camera ?? { status: "unavailable", error: "" };
     const on = camera.status === "on" || camera.status === "starting";
-    if (on && !cameraFeed.getAttribute("src")) cameraFeed.src = `/api/camera.mjpg?${Date.now()}`;
-    if (!on && cameraFeed.getAttribute("src")) cameraFeed.removeAttribute("src");
-    cameraFeed.hidden = !on;
-    cameraBadge.hidden = camera.status !== "on";
+    const showPreview = on && previewVisible && document.visibilityState === "visible";
+    if (showPreview && !cameraFeed.getAttribute("src")) cameraFeed.src = `/api/camera.mjpg?${Date.now()}`;
+    if (!showPreview && cameraFeed.getAttribute("src")) cameraFeed.removeAttribute("src");
+    cameraFeed.hidden = !showPreview;
+    cameraBadge.hidden = camera.status !== "on" || !showPreview;
+    cameraPreviewToggle.hidden = !on;
+    cameraPreviewToggle.textContent = previewVisible ? "Hide preview" : "Show preview";
+    cameraPreviewToggle.setAttribute("aria-pressed", String(previewVisible));
+    cameraTrackingStatus.textContent = camera.status === "on"
+      ? `Camera tracking on${showPreview ? "" : " · preview hidden"}`
+      : camera.status === "starting" ? "Camera tracking starting…" : "Camera tracking off";
 
     cameraToggle.hidden = !state || camera.status === "unavailable";
     cameraToggle.textContent = on ? "Stop camera" : "Start camera";
@@ -388,6 +439,8 @@
       cameraNote.textContent = camera.error;
     } else if (!on) {
       cameraNote.textContent = "Turn on the camera and your buddy notices when you sit down, take a break, lean in or wave.";
+    } else {
+      cameraNote.textContent = "Tracking continues while the preview is hidden or this tab is closed. Keep the Python app running.";
     }
 
     const body = state?.body;
@@ -415,6 +468,12 @@
     }
     cameraToggle.disabled = false;
   });
+  cameraPreviewToggle.addEventListener("click", () => {
+    previewVisible = !previewVisible;
+    try { localStorage.setItem(PREVIEW_KEY, previewVisible ? "shown" : "hidden"); } catch {}
+    renderCamera(companion); // does not call /api/camera or change physical presence
+  });
+  document.addEventListener("visibilitychange", () => renderCamera(companion));
 
   stage.onState(renderCompanion);
 
@@ -475,22 +534,46 @@
   feedButton.addEventListener("click", () => feed("dry"));
   treatButton.addEventListener("click", () => feed("wet"));
 
-  document.addEventListener("copy", () => {
-    react("encouragement", 2000, pick(lines().copy), "CMDC");
+  const shortcutAt = {};
+  async function reportShortcut(name, message) {
+    const at = performance.now();
+    if (at - (shortcutAt[name] ?? -Infinity) < 100) return;
+    shortcutAt[name] = at;
+    stage.react("encouragement", 2000, message);
+    if (extensionVoice) return; // content.js reports the real input immediately
+    try {
+      const response = await fetch("/api/shortcut", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shortcut: name }) });
+      if (response.ok) {
+        lastVoiceId ??= 0;
+        renderCompanion((await response.json()).state);
+      } else {
+        react("encouragement", 2000, message, { copy: "CMDC", paste: "CMDV", undo: "CMDZ" }[name]);
+      }
+    } catch {
+      react("encouragement", 2000, message, { copy: "CMDC", paste: "CMDV", undo: "CMDZ" }[name]);
+    }
+  }
+  document.addEventListener("copy", (event) => {
+    if (!document.hasFocus() || event.isTrusted === false) return;
+    reportShortcut("copy", pick(lines().copy));
     interact("copy_paste");
   });
-  document.addEventListener("paste", () => {
-    react("encouragement", 2000, pick(lines().paste), "CMDV");
+  document.addEventListener("paste", (event) => {
+    if (!document.hasFocus() || event.isTrusted === false) return;
+    reportShortcut("paste", pick(lines().paste));
     interact("copy_paste");
   });
   document.addEventListener("keydown", (e) => {
-    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.repeat && e.key.toLowerCase() === "z") {
-      react("encouragement", 2000, pick(lines().undo), "CMDZ");
+    if (document.hasFocus() && e.isTrusted !== false && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && !e.repeat) {
+      const name = { c: "copy", v: "paste", z: "undo" }[String(e.key).toLowerCase()];
+      if (name) reportShortcut(name, pick(lines()[name]));
     }
   });
 
   let lastPresence = 0;
-  function noteInput() {
+  function noteInput(event) {
+    if (!document.hasFocus() || event?.isTrusted === false) return;
     const wasAsleep = Date.now() - lastInput > SLEEP_AFTER_MS;
     lastInput = Date.now();
     if (wasAsleep) updateResting();
@@ -498,21 +581,15 @@
     // sent from this page, so it keeps whatever activity the extension saw.
     if (companion && lastInput - lastPresence > 5000) {
       lastPresence = lastInput;
-      fetch("/api/presence", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => {});
+      fetch("/api/presence", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ input: true }) }).catch(() => {});
     }
   }
-  for (const type of ["pointermove", "keydown", "scroll", "pointerdown"]) {
+  for (const type of ["pointermove", "keydown", "wheel", "touchmove", "pointerdown"]) {
     addEventListener(type, noteInput, { passive: true, capture: true });
   }
 
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") {
-      hiddenAt = Date.now();
-    } else if (hiddenAt && Date.now() - hiddenAt > WELCOME_AFTER_MS) {
-      stage.react("sad", 1800, pick(lines().missed));
-      setTimeout(() => react("happy", 1600, pick(lines().welcome), "onReturn"), 1800);
-    }
-  });
+  // Camera-confirmed returns arrive through /api/state. Switching tabs alone
+  // must not play a missed-you/onReturn reaction.
 
   setInterval(updateResting, 5000);
 
@@ -551,6 +628,7 @@
       endLine();
     }
     try { localStorage.setItem(VOICE_KEY, voiceOn ? "on" : "off"); } catch {}
+    if (extensionVoice) request("setVoice", { on: voiceOn }).catch(() => {});
   });
 
   function renderSettings() {

@@ -164,6 +164,12 @@ class UserStateClassifyTests(unittest.TestCase):
             UserState.AWAY,
         )
 
+    def test_body_tracking_presence_prevents_inferred_away(self):
+        self.assertEqual(
+            self.tracker.classify(screen(idle=900), present=True),
+            UserState.IDLE,
+        )
+
     def test_keyboard_unavailable_falls_back_to_idle_time(self):
         context = screen(idle=3)
         context.keyboard = KeyboardActivity(monitoring_available=False)

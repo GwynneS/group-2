@@ -174,6 +174,8 @@ class AwarenessService:
             counts[Shortcut.COPY] = browser.total_copies
         if browser.total_pastes:
             counts[Shortcut.PASTE] = browser.total_pastes
+        if browser.total_undos:
+            counts[Shortcut.UNDO] = browser.total_undos
         return KeyboardActivity(
             monitoring_available=True,
             typing_active=since_key is not None and since_key <= 7.0,

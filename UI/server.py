@@ -22,7 +22,9 @@ Routes
     GET  /api/status                    what's running: AI, brain awareness source, camera,
                                         key tracking, and whether the extension has checked in
     GET  /api/state                     live companion state (see companion.py)
-    POST /api/presence                  {"title", "host"} of the focused tab -> state
+    POST /api/presence                  tab metadata -> state; only explicit input:true marks input
+    POST /api/shortcut                  {"shortcut": "copy"|"paste"|"undo"} -> immediate reaction
+    POST /api/voice/claim               one playback owner per live voice event
     POST /api/interact                  {"action": pet|poke|chat|copy_paste|feed, "food"?} -> result + state
     POST /api/camera                    {"on": bool} -> start/stop body tracking
     POST /api/browser-activity          extension heartbeat every 5s: counts only (clicks,
@@ -352,8 +354,21 @@ class Handler(SimpleHTTPRequestHandler):
             companion.record_browser_activity(body)
             return self.send_json({"ok": True})
 
+        if self.path == "/api/shortcut":
+            accepted = companion.record_browser_shortcut(str(body.get("shortcut", "")))
+            return self.send_json({"accepted": accepted, "state": companion.state()},
+                                  HTTPStatus.OK if accepted else HTTPStatus.BAD_REQUEST)
+
+        if self.path == "/api/voice/claim":
+            claimed = companion.claim_voice(str(body.get("key", ""))[:100],
+                                             str(body.get("owner", ""))[:100],
+                                             release=body.get("release") is True)
+            return self.send_json({"claimed": claimed})
+
         if self.path == "/api/presence":
             companion.report_browser(str(body.get("title", ""))[:200], str(body.get("host", ""))[:100])
+            if body.get("input") is True:
+                companion.note_browser_input()
             return self.send_json(companion.state())
 
         if self.path == "/api/interact":
@@ -370,6 +385,7 @@ class Handler(SimpleHTTPRequestHandler):
                 companion.camera.start()
             else:
                 companion.camera.stop()
+            companion.tick()
             return self.send_json(companion.state())
 
         return self.send_error(HTTPStatus.NOT_FOUND)

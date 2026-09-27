@@ -154,8 +154,8 @@ class CompanionServiceTests(unittest.TestCase):
         keys.record_shortcut(Shortcut.UNDO)
         self.service.tick()
         state = self.service.state()
-        self.assertEqual(state["message"], "Undo! No worries~")  # still reacts,
-        self.assertIsNone(state["voice"])  # but the voice rests between shortcuts
+        self.assertEqual(state["message"], "Undo! No worries~")
+        self.assertEqual(state["voice"]["trigger"], "CMDZ")  # different shortcuts respond immediately
 
     def test_typing_says_a_line_every_45_to_60_seconds(self):
         self.service._voice_for_screen(screen(since_key=1), now=1000)
@@ -180,6 +180,7 @@ class CompanionServiceTests(unittest.TestCase):
     def test_sitting_idle_in_frame_says_a_line_once(self):
         self.service.camera.status = "on"
         self.service._body = body(present=True)
+        self.service._body_at = 1000  # a fresh simulated camera frame
         self.service._voice_for_screen(screen(idle=90), now=1000)
         first = self.voice()
         self.assertEqual(first[1], "onInactiveINframe")

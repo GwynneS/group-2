@@ -91,7 +91,7 @@ class UserStateTracker:
         """The instantaneous state, before stability is applied."""
         idle = screen.idle_seconds
 
-        if present is False or idle >= self._away_after:
+        if present is False or (present is not True and idle >= self._away_after):
             return UserState.AWAY
         if idle >= self._idle_after or screen.activity == ActivityType.IDLE:
             return UserState.IDLE

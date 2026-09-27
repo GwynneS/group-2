@@ -1,0 +1,26 @@
+............127.0.0.1 - - [27/Sep/2026 10:28:28] "POST /api/camera HTTP/1.1" 200 -
+..127.0.0.1 - - [27/Sep/2026 10:28:30] "POST /api/shortcut HTTP/1.1" 200 -
+127.0.0.1 - - [27/Sep/2026 10:28:30] "POST /api/interact HTTP/1.1" 200 -
+.127.0.0.1 - - [27/Sep/2026 10:28:30] "POST /api/shortcut HTTP/1.1" 200 -
+127.0.0.1 - - [27/Sep/2026 10:28:30] "POST /api/voice/claim HTTP/1.1" 200 -
+127.0.0.1 - - [27/Sep/2026 10:28:30] "POST /api/voice/claim HTTP/1.1" 200 -
+127.0.0.1 - - [27/Sep/2026 10:28:30] "POST /api/voice/claim HTTP/1.1" 200 -
+127.0.0.1 - - [27/Sep/2026 10:28:30] "POST /api/voice/claim HTTP/1.1" 200 -
+...............................127.0.0.1 - - [27/Sep/2026 10:28:31] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [27/Sep/2026 10:28:31] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [27/Sep/2026 10:28:31] "GET /animation.js HTTP/1.1" 200 -
+127.0.0.1 - - [27/Sep/2026 10:28:31] "GET /extension/characters.js HTTP/1.1" 200 -
+127.0.0.1 - - [27/Sep/2026 10:28:31] "GET /extension/art/boy/happy.png HTTP/1.1" 200 -
+.127.0.0.1 - - [27/Sep/2026 10:28:31] "POST /api/camera HTTP/1.1" 409 -
+.127.0.0.1 - - [27/Sep/2026 10:28:31] "POST /api/chat HTTP/1.1" 200 -
+.127.0.0.1 - - [27/Sep/2026 10:28:31] "GET /api/voices HTTP/1.1" 200 -
+.127.0.0.1 - - [27/Sep/2026 10:28:31] "POST /api/interact HTTP/1.1" 200 -
+127.0.0.1 - - [27/Sep/2026 10:28:31] "POST /api/interact HTTP/1.1" 400 -
+.....127.0.0.1 - - [27/Sep/2026 10:28:31] "GET /voice/happyF1.mp3 HTTP/1.1" 206 -
+..
+----------------------------------------------------------------------
+Ran 57 tests in 2.936s
+
+OK
+[chat] Claude unavailable, using built-in replies (ModuleNotFoundError)
+[window] pywebview not installed (pip install pywebview); open http://127.0.0.1:8765 in your browser

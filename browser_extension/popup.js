@@ -6,6 +6,8 @@ const B = globalThis.BuddyCharacters;
 const buttons = [...document.querySelectorAll(".choice")];
 const visible = document.getElementById("visible");
 const pets = document.getElementById("pets");
+const voiceOn = document.getElementById("voice-on");
+voiceOn.addEventListener("change", () => api.storage.local.set({ voiceOn: voiceOn.checked }));
 
 document.head.append(Object.assign(document.createElement("style"), { textContent: B.ANIMATION_CSS }));
 
@@ -76,7 +78,8 @@ api.runtime.sendMessage({ type: "appState" }).then((state) => {
   appStatus.textContent = `${name} feels ${state.pet.mood}: ${state.message}`;
 });
 
-api.storage.local.get(["buddy", "pets"]).then(({ buddy, pets: count = 0 }) => {
+api.storage.local.get(["buddy", "pets", "voiceOn"]).then(({ buddy, pets: count = 0, voiceOn: enabled = true }) => {
+  voiceOn.checked = enabled;
   prefs = { character: null, visible: true, ...buddy };
   if (count) pets.textContent = `Headpats given: ${count}`;
   render();

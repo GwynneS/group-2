@@ -16,6 +16,8 @@ NODE = shutil.which("node")
 HARNESS = r"""
 const fs = require("fs");
 const sent = [];
+let clock = 1000;
+Object.defineProperty(globalThis, "performance", {value: {now: () => clock}, configurable: true});
 const listeners = {};
 const intervals = [];
 const on = (target) => (type, fn) => ((listeners[target + ":" + type] ??= []).push(fn));
@@ -44,6 +46,13 @@ fire("document", "scroll");
 intervals.find((t) => t.ms === 5000).fn();   // first heartbeat
 fire("document", "paste");
 intervals.find((t) => t.ms === 5000).fn();   // second heartbeat: deltas only
+clock += 5000;
+intervals.find((t) => t.ms === 5000).fn();   // no input: age keeps growing
+clock += 5000;
+fire("document", "keydown", {isTrusted: false});  // website-generated event
+intervals.find((t) => t.ms === 5000).fn();
+fire("document", "pointermove", {isTrusted: true}); // real mouse activity
+intervals.find((t) => t.ms === 5000).fn();
 fire("window", "pagehide", { persisted: false }); // leaving the page
 
 console.log(JSON.stringify(sent));
@@ -80,6 +89,19 @@ class ContentScriptHeartbeatTests(unittest.TestCase):
         self.assertTrue(self.beats[-1]["left"])
         self.assertIn("session", [m["type"] for m in self.messages])
 
+    def test_polls_do_not_reset_the_age_of_input(self):
+        self.assertEqual(self.beats[2]["inputAgeMs"], 5000)
+        self.assertEqual(self.beats[2]["keys"], 0)
+        self.assertEqual(self.beats[3]["inputAgeMs"], 10000)
+
+    def test_synthetic_keys_are_not_activity(self):
+        self.assertEqual(self.beats[3]["keys"], 0)
+
+    def test_pointer_movement_is_real_activity_without_recording_positions(self):
+        self.assertEqual(self.beats[4]["inputAgeMs"], 0)
+        self.assertNotIn("x", self.beats[4])
+        self.assertNotIn("y", self.beats[4])
+
     def test_python_tracker_accepts_extension_heartbeats(self):
         tracker = BrowserActivityTracker()
         for beat in self.beats:
@@ -94,6 +116,14 @@ class ContentScriptHeartbeatTests(unittest.TestCase):
 
 @unittest.skipUnless(NODE, "node is not installed")
 class ExtensionSyntaxTests(unittest.TestCase):
+    def test_buddy_runtime_consumes_the_app_state_contract(self):
+        result = subprocess.run(
+            [NODE, str(Path(__file__).with_name("buddy_runtime.cjs")), str(ROOT)],
+            capture_output=True, text=True, timeout=20,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(json.loads(result.stdout)["brainControlled"])
+
     def test_all_scripts_parse(self):
         for path in [*ROOT.glob("browser_extension/*.js"), *ROOT.glob("UI/*.js")]:
             with self.subTest(path.name):

@@ -1,0 +1,8 @@
+{"standaloneHttp": true, "stateContract": true, "extensionDownload": true, "voiceIndex": true}
+Starting Buddy 0.5.3...
+Python: /opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3
+Your browser will open http://127.0.0.1:8765
+Keep this window open. Press Ctrl+C here to stop Buddy.
+Port 8765 is already in use.
+Close the previous Buddy terminal (Ctrl+C), then start this copy.
+{"launcherCommandMocked": true, "portConflictGuardMocked": true, "windowsBatchExecuted": false}

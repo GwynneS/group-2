@@ -23,14 +23,17 @@
   if (location.port !== "8765") return;
 
   const api = globalThis.browser ?? globalThis.chrome;
-  const SHARED_KEYS = ["buddy", "pets", "chat", "lastFed"];
+  const SHARED_KEYS = ["buddy", "pets", "chat", "lastFed", "voiceOn", "voicePlayback"];
 
   function post(msg) {
     window.postMessage({ source: "buddy-extension", ...msg }, location.origin);
   }
 
-  function hello() {
-    post({ type: "hello", version: api.runtime.getManifest().version });
+  async function hello() {
+    let supported = false;
+    try { supported = (await api.runtime.sendMessage({ type: "voiceSupport" }))?.supported === true; }
+    catch {}
+    post({ type: "hello", version: api.runtime.getManifest().version, voice: supported });
   }
 
   function cleanBuddy(buddy) {
@@ -53,6 +56,14 @@
         return api.runtime.sendMessage({ type: "pet" });
       case "feed":
         return api.storage.local.set({ lastFed: Date.now() });
+      case "setVoice":
+        await api.storage.local.set({ voiceOn: msg.on !== false });
+        return post({ type: "response", id: msg.id, data: {} });
+      case "voice": {
+        const data = await api.runtime.sendMessage({ type: "voice", trigger: String(msg.trigger ?? ""),
+          interrupt: msg.interrupt === true, event: msg.event });
+        return post({ type: "response", id: msg.id, data });
+      }
       case "chat": {
         const text = String(msg.text ?? "").slice(0, 2000);
         const data = await api.runtime.sendMessage({ type: "chat", text });
