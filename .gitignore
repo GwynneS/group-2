@@ -17,3 +17,5 @@ dist/
 
 # What the buddy learned about you from chatting (UI/server.py MemoryStore)
 buddy_data/
+.vercel
+.env*
