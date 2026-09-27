@@ -20,15 +20,29 @@ sys.path.insert(0, str(UI_DIR))
 import companion as companion_module  # noqa: E402
 import server  # noqa: E402
 from companion import CompanionService  # noqa: E402
+from screen_behavior.awareness.models import Shortcut  # noqa: E402
+
+# Every voice trigger UI/app.js and UI/companion.py play.
+VOICE_TRIGGERS = {
+    "happy", "unhappy", "fed", "CMDC", "CMDV", "CMDZ", "whenTyping",
+    "onGetup", "notInFrame", "onReturn", "onInactiveINframe",
+}
 
 ANIMATIONS = {"lounging", "happy", "sad", "tired", "angry", "hungry", "encouragement"}
 
 
-def body(event=None, present=True, hand_raised=False, leaning_in=False, camera_moving=False):
+def body(event=None, present=True, hand_raised=False, leaning_in=False, camera_moving=False, away_seconds=0.0):
     return SimpleNamespace(
         event=event, present=present, state="at_desk" if present else "away",
         hand_raised=hand_raised, leaning_in=leaning_in, camera_moving=camera_moving,
+        away_seconds=away_seconds,
     )
+
+
+def screen(since_key=None, idle=0.0, activity="coding"):
+    """What _voice_for_screen reads from a brain update's ScreenContext."""
+    keyboard = SimpleNamespace(shortcut_counts={}, last_shortcut=None, seconds_since_last_keypress=since_key)
+    return SimpleNamespace(keyboard=keyboard, idle_seconds=idle, activity=activity)
 
 
 class CompanionServiceTests(unittest.TestCase):
@@ -110,6 +124,69 @@ class CompanionServiceTests(unittest.TestCase):
         self.service.report_browser("Docs", "docs.python.org")
         self.service.report_browser("", "")
         self.assertIn("docs.python.org", self.service.browser_backend.snapshot().foreground.title)
+
+    def voice(self):
+        line = self.service.state()["voice"]
+        return line and (line["id"], line["trigger"])
+
+    def test_camera_events_say_their_lines(self):
+        for event, trigger in (("user_returned", "onReturn"), ("user_getting_up", "onGetup")):
+            with self.subTest(event=event):
+                self.service._on_body(body(event=event))
+                self.assertEqual(self.voice()[1], trigger)
+
+    def test_gone_for_20_seconds_says_not_in_frame_once(self):
+        self.service._on_body(body(present=False, away_seconds=5))
+        self.assertIsNone(self.voice())
+        self.service._on_body(body(present=False, away_seconds=21))
+        first = self.voice()
+        self.assertEqual(first[1], "notInFrame")
+        self.service._on_body(body(present=False, away_seconds=30))
+        self.assertEqual(self.voice(), first)  # not said again while still gone
+
+    def test_copy_paste_undo_in_any_app_say_their_lines(self):
+        keys = self.service.brain.awareness.keyboard_tracker
+        keys.set_monitoring_available(True)
+        self.service.tick()
+        keys.record_shortcut(Shortcut.PASTE)
+        self.service.tick()
+        self.assertEqual(self.voice()[1], "CMDV")
+        keys.record_shortcut(Shortcut.UNDO)
+        self.service.tick()
+        state = self.service.state()
+        self.assertEqual(state["message"], "Undo! No worries~")  # still reacts,
+        self.assertIsNone(state["voice"])  # but the voice rests between shortcuts
+
+    def test_typing_says_a_line_every_45_to_60_seconds(self):
+        self.service._voice_for_screen(screen(since_key=1), now=1000)
+        self.service._voice_for_screen(screen(since_key=5), now=1044)  # short pauses are fine
+        self.assertIsNone(self.voice())
+        self.service._voice_for_screen(screen(since_key=1), now=1060)
+        first = self.voice()
+        self.assertEqual(first[1], "whenTyping")
+        self.service._voice_for_screen(screen(since_key=1), now=1104)  # 44s more typing
+        self.assertEqual(self.voice(), first)
+        self.service._voice_for_screen(screen(since_key=1), now=1120)
+        self.assertNotEqual(self.voice(), first)
+        self.assertEqual(self.voice()[1], "whenTyping")
+
+    def test_a_long_pause_starts_the_typing_count_over(self):
+        self.service._voice_for_screen(screen(since_key=1), now=1000)
+        self.service._voice_for_screen(screen(since_key=30), now=1040)  # stopped typing
+        self.service._voice_for_screen(screen(since_key=1), now=1050)
+        self.service._voice_for_screen(screen(since_key=1), now=1070)
+        self.assertIsNone(self.voice())  # only 20s since typing resumed
+
+    def test_sitting_idle_in_frame_says_a_line_once(self):
+        self.service.camera.status = "on"
+        self.service._body = body(present=True)
+        self.service._voice_for_screen(screen(idle=90), now=1000)
+        first = self.voice()
+        self.assertEqual(first[1], "onInactiveINframe")
+        self.service._voice_for_screen(screen(idle=95), now=1005)
+        self.assertEqual(self.voice(), first)
+        self.service._voice_for_screen(screen(idle=90, activity="video"), now=1100)  # watching: fine
+        self.assertEqual(self.voice(), first)
 
     def test_extension_is_seen_after_its_first_heartbeat(self):
         self.assertFalse(self.service.extension_seen)
@@ -209,6 +286,31 @@ class ServerRouteTests(unittest.TestCase):
         status, data = self.post("/api/camera", {"on": True})
         self.assertEqual(status, 409)
         self.assertIn("pip install", data["error"])
+
+    def test_every_voice_trigger_has_lines_for_both_buddies(self):
+        _, raw = self.get("/api/voices")
+        clips = json.loads(raw)
+        for trigger in VOICE_TRIGGERS:
+            with self.subTest(trigger=trigger):
+                self.assertTrue(clips[trigger]["girl"], "no Mochi (F) clips")
+                self.assertTrue(clips[trigger]["boy"], "no Kiko (M) clips")
+                for clip in clips[trigger]["girl"] + clips[trigger]["boy"]:
+                    self.assertIn("text", clip)  # its exact words, or None
+
+    def test_voice_file_names(self):
+        match = server.VOICE_FILE.fullmatch
+        self.assertEqual(match("onInactiveINframeF1.mp3").group("trigger", "voice"), ("onInactiveINframe", "F"))
+        self.assertEqual(match("CMDCM2.mp3").group("trigger", "voice"), ("CMDC", "M"))
+        self.assertIsNone(match("notInFrame3.mp3"))  # whose voice?
+        self.assertIsNone(match("onGetupM3 2.mp3"))  # a Finder copy
+
+    def test_voice_clips_answer_byte_ranges(self):
+        req = Request(self.base + "/voice/happyF1.mp3", headers={"Range": "bytes=0-1"})
+        with urlopen(req, timeout=5) as res:
+            self.assertEqual(res.status, 206)
+            self.assertEqual(res.headers["Content-Type"], "audio/mpeg")
+            self.assertTrue(res.headers["Content-Range"].startswith("bytes 0-1/"))
+            self.assertEqual(len(res.read()), 2)
 
     def test_art_and_scripts_are_served(self):
         for path in ("/", "/app.js", "/animation.js", "/extension/characters.js", "/extension/art/boy/happy.png"):

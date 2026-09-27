@@ -18,6 +18,7 @@ browser tab the extension reports, using the same activity classifier.
 from __future__ import annotations
 
 import importlib.util
+import random
 import sys
 import threading
 import time
@@ -29,7 +30,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from animation_bridge import ANIMATION_LABELS, animation_for_update  # noqa: E402
-from screen_behavior.awareness.models import RawScreenSnapshot, WindowInfo  # noqa: E402
+from screen_behavior.awareness.models import ActivityType, RawScreenSnapshot, Shortcut, WindowInfo  # noqa: E402
 from screen_behavior.awareness.service import AwarenessService  # noqa: E402
 from screen_behavior.integration.brain import CompanionBrain  # noqa: E402
 from screen_behavior.pet.interactions import InteractionEffect  # noqa: E402
@@ -62,16 +63,30 @@ BEHAVIOR_MESSAGES = {
     "watch_screen": "Watching your screen",
 }
 
-# Reactions to webcam body-tracking events: (emotion, caption, seconds, effect).
+# Reactions to webcam body-tracking events:
+# (emotion, caption, seconds, effect, voice clips from HackMp3s/ or None).
 BODY_REACTIONS = {
-    "user_arrived": ("happy", "There you are! Let's get started.", 4, InteractionEffect(attention_delta=10)),
-    "user_returned": ("happy", "Welcome back!", 4, InteractionEffect(attention_delta=15, affection_delta=3)),
-    "user_left": ("sad", "Come back soon...", 5, None),
-    "user_getting_up": ("encouragement", "Stretch break? Good idea!", 4, None),
-    "user_sat_back_down": ("happy", "Back to it!", 3, None),
+    "user_arrived": ("happy", "There you are! Let's get started.", 4, InteractionEffect(attention_delta=10), None),
+    "user_returned": ("happy", "Welcome back!", 4, InteractionEffect(attention_delta=15, affection_delta=3), "onReturn"),
+    "user_left": ("sad", "Come back soon...", 5, None, None),
+    "user_getting_up": ("encouragement", "Stretch break? Good idea!", 4, None, "onGetup"),
+    "user_sat_back_down": ("happy", "Back to it!", 3, None, None),
 }
 HAND_RAISE_COOLDOWN = 10.0
 LEAN_IN_COOLDOWN = 90.0
+
+# Voice lines for things the brain notices on its own (the website plays them;
+# see UI/app.js). Each one also shows its emotion and caption.
+GONE_AFTER_SECONDS = 20.0         # out of the camera's view this long -> notInFrame
+INACTIVE_IN_FRAME_SECONDS = 60.0  # at the desk with no keyboard/mouse input -> onInactiveINframe
+TYPING_LINE_EVERY = (45.0, 60.0)  # seconds of typing per whenTyping line, picked at random each time
+TYPING_PAUSE_SECONDS = 8.0        # a longer pause starts the count over
+SHORTCUT_VOICE_COOLDOWN = 15.0    # copy/paste/undo still show a reaction in between
+SHORTCUT_REACTIONS = {
+    Shortcut.COPY: ("encouragement", "Copied! Nice find~", "CMDC"),
+    Shortcut.PASTE: ("encouragement", "Pasted! You're on a roll~", "CMDV"),
+    Shortcut.UNDO: ("encouragement", "Undo! No worries~", "CMDZ"),
+}
 
 
 class BrowserActivityBackend:
@@ -111,6 +126,8 @@ class Reaction:
     animation: str
     message: str
     until: float
+    voice: str | None = None  # a trigger in HackMp3s/, e.g. "onReturn"
+    id: int = 0
 
 
 def module_available(*names: str) -> bool:
@@ -230,11 +247,18 @@ class CompanionService:
         self.extension_seen = False
         self._update = None
         self._reaction: Reaction | None = None
+        self._reaction_id = 0
         self._body = None
         self._last_hand_raise = 0.0
         self._last_lean_in = 0.0
         self._hand_was_raised = False
         self._was_leaning = False
+        self._gone_announced = False
+        self._inactive_announced = False
+        self._shortcut_counts: dict | None = None  # from the previous tick
+        self._last_shortcut_voice = float("-inf")
+        self._typing_since: float | None = None
+        self._typing_due = 0.0  # seconds of typing until the next whenTyping line
 
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._loop, daemon=True)
@@ -260,6 +284,15 @@ class CompanionService:
     def tick(self) -> None:
         with self._lock:
             self._update = self.brain.update()
+            self._voice_for_screen(self._update.screen, time.monotonic())
+
+    @property
+    def keyboard_status(self) -> str:
+        """Key tracking in every app: "on", "needs_permission" (macOS Input
+        Monitoring), "unavailable", or "off" (browser extension only)."""
+        if self.awareness_source != "native":
+            return "off"
+        return getattr(getattr(self.brain.awareness, "keyboard_monitor", None), "status", "off")
 
     # --- inputs --------------------------------------------------------------
 
@@ -315,10 +348,16 @@ class CompanionService:
                 self.browser_backend.note_input()
             reaction = BODY_REACTIONS.get(snap.event or "")
             if reaction:
-                animation, message, seconds, effect = reaction
-                self._react(animation, message, seconds)
+                animation, message, seconds, effect, voice = reaction
+                self._react(animation, message, seconds, voice)
                 if effect:
                     self.brain.apply_interaction(effect)
+            # "user_left" comes after a few seconds; completely gone is later.
+            if snap.present:
+                self._gone_announced = False
+            elif snap.away_seconds >= GONE_AFTER_SECONDS and not self._gone_announced:
+                self._gone_announced = True
+                self._react("sad", "Where did you go...?", 5, "notInFrame")
             if snap.camera_moving:
                 return
             if snap.hand_raised and not self._hand_was_raised and now - self._last_hand_raise > HAND_RAISE_COOLDOWN:
@@ -331,8 +370,51 @@ class CompanionService:
             self._hand_was_raised = snap.hand_raised
             self._was_leaning = snap.leaning_in
 
-    def _react(self, animation: str, message: str, seconds: float) -> None:
-        self._reaction = Reaction(animation, message, time.monotonic() + seconds)
+    def _voice_for_screen(self, screen, now: float) -> None:
+        """Reactions, with voice lines, to copy/paste/undo and typing in any
+        app, and to sitting at the desk without touching anything."""
+        keyboard = screen.keyboard
+        if keyboard is not None:
+            counts = dict(keyboard.shortcut_counts)
+            if self._shortcut_counts is not None:
+                new = [s for s, n in counts.items() if n > self._shortcut_counts.get(s, 0)]
+                if new:
+                    shortcut = keyboard.last_shortcut if keyboard.last_shortcut in new else new[0]
+                    animation, message, voice = SHORTCUT_REACTIONS[shortcut]
+                    if now - self._last_shortcut_voice < SHORTCUT_VOICE_COOLDOWN:
+                        voice = None
+                    else:
+                        self._last_shortcut_voice = now
+                    self._react(animation, message, 2.5, voice)
+            self._shortcut_counts = counts
+
+            since_key = keyboard.seconds_since_last_keypress
+            if since_key is not None and since_key <= TYPING_PAUSE_SECONDS:
+                if self._typing_since is None or now - self._typing_since >= self._typing_due:
+                    if self._typing_since is not None:
+                        self._react("encouragement", "Look at you go!", 4, "whenTyping")
+                    self._typing_since = now
+                    self._typing_due = random.uniform(*TYPING_LINE_EVERY)
+            else:
+                self._typing_since = None
+
+        # idle_seconds is real keyboard/mouse input with native awareness; the
+        # browser-only backend counts sitting in view as input, so this stays quiet.
+        body = self._body
+        inactive = (
+            self.camera.status == "on" and body is not None and body.state == "at_desk"
+            and screen.idle_seconds >= INACTIVE_IN_FRAME_SECONDS
+            and screen.activity != ActivityType.VIDEO  # watching is fine
+        )
+        if not inactive:
+            self._inactive_announced = False
+        elif not self._inactive_announced:
+            self._inactive_announced = True
+            self._react("tired", "Still with me...?", 5, "onInactiveINframe")
+
+    def _react(self, animation: str, message: str, seconds: float, voice: str | None = None) -> None:
+        self._reaction_id += 1
+        self._reaction = Reaction(animation, message, time.monotonic() + seconds, voice, self._reaction_id)
 
     # --- output --------------------------------------------------------------
 
@@ -353,13 +435,20 @@ class CompanionService:
             message = "I'm hungry... feed me?"
         elif animation == "tired" and behavior not in ("sleep", "play_dead"):
             message = "So sleepy..."
-        if reaction and time.monotonic() < reaction.until:
+        voice = None
+        now = time.monotonic()
+        if reaction and now < reaction.until:
             animation, message = reaction.animation, reaction.message
+            if reaction.voice:
+                # seconds: how long this reaction (and its caption) still shows.
+                voice = {"id": reaction.id, "trigger": reaction.voice, "seconds": round(reaction.until - now, 2)}
 
         camera_on = self.camera.status == "on"
         return {
             "animation": animation,
             "message": message,
+            # A line to say with this reaction; the page plays each id once.
+            "voice": voice,
             "pet": {
                 "hunger": round(pet.hunger),
                 "energy": round(pet.energy),

@@ -17,8 +17,10 @@ Routes
     GET  /                              UI/index.html (and other files in UI/)
     GET  /extension/<file>              files from browser_extension/ (characters.js, art/...)
     GET  /download/buddy-extension.zip  the extension, zipped fresh on each request
+    GET  /voice/<file>                  voice clips from HackMp3s/
+    GET  /api/voices                    {trigger: {"girl": [{"url", "text"}...], "boy": [...]}}
     GET  /api/status                    what's running: AI, brain awareness source, camera,
-                                        and whether the extension has checked in
+                                        key tracking, and whether the extension has checked in
     GET  /api/state                     live companion state (see companion.py)
     POST /api/presence                  {"title", "host"} of the focused tab -> state
     POST /api/interact                  {"action": pet|poke|chat|copy_paste|feed, "food"?} -> result + state
@@ -57,6 +59,7 @@ PORT = 8765  # keep in sync with APP_ORIGINS in browser_extension/background.js
 
 UI_DIR = Path(__file__).resolve().parent
 EXT_DIR = UI_DIR.parent / "browser_extension"
+VOICE_DIR = UI_DIR.parent / "HackMp3s"
 
 MODEL = "claude-opus-5"
 MAX_MESSAGE_CHARS = 2000
@@ -125,7 +128,14 @@ class ClaudeChat:
             import anthropic  # optional dependency
 
             self.anthropic = anthropic
-            self.client = anthropic.Anthropic()
+            client = anthropic.Anthropic()
+            # Without an API key, auth token or `ant auth login` profile the
+            # client still builds, but its first request raises TypeError.
+            if not (client.api_key or client.auth_token or client.credentials):
+                print("[chat] No Claude credentials (set ANTHROPIC_API_KEY or run `ant auth login`); "
+                      "using built-in replies")
+                return
+            self.client = client
         except Exception as exc:  # not installed, or no credentials configured
             print(f"[chat] Claude unavailable, using built-in replies ({exc.__class__.__name__})")
 
@@ -206,6 +216,39 @@ def offline_reply(character: str, message: str) -> str:
 claude = ClaudeChat()
 
 
+# --- Voice clips ---------------------------------------------------------------
+
+# HackMp3s/<trigger><F|M><n>.mp3, e.g. happyF2.mp3: F is Mochi's voice, M is Kiko's.
+VOICE_FILE = re.compile(r"(?P<trigger>[A-Za-z]+?)(?P<voice>[FM])\d+\.mp3")
+VOICE_CHARACTERS = {"F": "girl", "M": "boy"}
+# {"happyF1.mp3": "the exact words said in it"}. A clip without words shows
+# no caption while it plays, so the text never differs from the voice.
+VOICE_CAPTIONS = VOICE_DIR / "captions.json"
+
+
+def scan_voice_clips() -> tuple[dict, list[str]]:
+    """({trigger: {"girl": [{"url", "text"}, ...], "boy": [...]}}, names that
+    don't fit the pattern). `text` is the clip's caption, or None."""
+    try:
+        captions = json.loads(VOICE_CAPTIONS.read_text())
+    except (OSError, ValueError):
+        captions = {}
+    clips: dict = {}
+    skipped = []
+    for path in sorted(VOICE_DIR.glob("*.mp3")):
+        match = VOICE_FILE.fullmatch(path.name)
+        if not match:
+            skipped.append(path.name)
+            continue
+        text = captions.get(path.name) if isinstance(captions, dict) else None
+        per_character = clips.setdefault(match["trigger"], {"girl": [], "boy": []})
+        per_character[VOICE_CHARACTERS[match["voice"]]].append({
+            "url": f"/voice/{path.name}",
+            "text": (text.strip() or None) if isinstance(text, str) else None,
+        })
+    return clips, skipped
+
+
 # --- Extension packaging -------------------------------------------------------
 
 def extension_version() -> str:
@@ -255,6 +298,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "brain": companion.awareness_source if companion else "off",
                 "camera": companion.camera.status if companion else "unavailable",
                 "extension_seen": bool(companion and companion.extension_seen),
+                "keys": companion.keyboard_status if companion else "off",
             })
 
         if path == "/api/state":
@@ -279,6 +323,12 @@ class Handler(SimpleHTTPRequestHandler):
 
         if path.startswith("/extension/"):
             return self.send_file(safe_path(EXT_DIR, path[len("/extension/"):]))
+
+        if path == "/api/voices":
+            return self.send_json(scan_voice_clips()[0])
+
+        if path.startswith("/voice/"):
+            return self.send_file(safe_path(VOICE_DIR, path[len("/voice/"):]))
 
         if path == "/":
             path = "/index.html"
@@ -366,12 +416,31 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_error(HTTPStatus.NOT_FOUND)
         data = file.read_bytes()
         ctype = mimetypes.guess_type(file.name)[0] or "application/octet-stream"
-        self.send_response(HTTPStatus.OK)
+        # Byte ranges: WebKit (Safari, the desktop window) asks for audio this way.
+        start, end = 0, len(data) - 1
+        byte_range = re.fullmatch(r"bytes=(\d*)-(\d*)", self.headers.get("Range", ""))
+        if byte_range and data and (byte_range[1] or byte_range[2]):
+            if byte_range[1]:
+                start = int(byte_range[1])
+                end = min(int(byte_range[2]), end) if byte_range[2] else end
+            else:  # "bytes=-N": the last N bytes
+                start = max(0, len(data) - int(byte_range[2]))
+            if start > end:
+                self.send_response(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                self.send_header("Content-Range", f"bytes */{len(data)}")
+                self.end_headers()
+                return
+            self.send_response(HTTPStatus.PARTIAL_CONTENT)
+            self.send_header("Content-Range", f"bytes {start}-{end}/{len(data)}")
+        else:
+            self.send_response(HTTPStatus.OK)
+        body = data[start:end + 1]
         self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Accept-Ranges", "bytes")
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(data)
+        self.wfile.write(body)
 
     def send_json(self, payload: dict, status: HTTPStatus = HTTPStatus.OK) -> None:
         data = json.dumps(payload).encode()
@@ -398,6 +467,15 @@ def make_server(host: str = HOST, port: int = PORT, state_provider=None) -> Thre
     server = ThreadingHTTPServer((host, port), handler)
     server.daemon_threads = True
     return server
+
+
+KEYS_STATUS = {
+    "on": "Cmd/Ctrl+C, V, Z and typing, in every app",
+    "needs_permission": "off until you allow your terminal app in System Settings > Privacy & Security"
+                        " > Input Monitoring, then restart",
+    "unavailable": "off (pip install -r requirements.txt)",
+    "off": "only what the browser extension reports",
+}
 
 
 # --- Desktop window ------------------------------------------------------------
@@ -467,6 +545,11 @@ def main() -> None:
     print(f"  AI chat:      {'Claude' if claude.available else 'built-in replies'}")
     print(f"  Brain:        screen awareness from {'this computer' if companion.awareness_source == 'native' else 'the browser extension'}")
     print(f"  Body tracking: {companion.camera.status}")
+    print(f"  Keys:         {KEYS_STATUS[companion.keyboard_status]}")
+    clips, skipped = scan_voice_clips()
+    print(f"  Voice:        {sum(len(c['girl']) + len(c['boy']) for c in clips.values())} clips in HackMp3s/")
+    for name in skipped:
+        print(f"[voice] Skipping HackMp3s/{name}: name it <trigger><F|M><n>.mp3 (F = Mochi, M = Kiko)")
     try:
         if args.open or args.no_window or not run_window(url):
             if args.open:

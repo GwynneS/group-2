@@ -2,17 +2,22 @@
 // companion's needs, and extension download. The buddy itself is drawn by
 // animation.js (BuddyStage); this file decides how it reacts:
 //
-//   click (headpat)             happy          + headpat counted
-//   5+ clicks in 2s             angry
-//   Feed                        happy          resets hunger (45 min)
+//   click (headpat)             happy          + headpat counted   voice: happy
+//   5+ clicks in 2s             angry                              voice: unhappy
+//   Feed                        happy          resets hunger       voice: fed
 //   chat message                by its words (see characters.js)
-//   copy / paste on this page   encouragement
+//   copy / paste / undo here    encouragement                      voice: CMDC / CMDV / CMDZ
 //   idle 90s                    tired          (resting pose, until you're back)
-//   back after 60s away         sad, then happy
+//   back after 60s away         sad, then happy                    voice: onReturn
 //
 // Headpats, pokes, feeding and copy/paste are also sent to the companion
 // brain (UI/server.py → screen_behavior), which updates the buddy's needs
-// and mood; its state comes back through BuddyStage.onState.
+// and mood; its state comes back through BuddyStage.onState. The brain has
+// voice lines of its own (see UI/companion.py): keys in any app, typing, and
+// the camera's getting up / gone / back / sitting idle.
+//
+// Voice lines are the clips in HackMp3s/ (Mochi's end in F, Kiko's in M),
+// listed by /api/voices.
 //
 // When the browser extension is installed, its bridge script (bridge.js)
 // answers on this page through window.postMessage, and the extension's
@@ -45,6 +50,7 @@
   const cameraToggle = $("camera-toggle");
   const bodyStatus = $("body-status");
   const showOnSites = $("show-on-sites");
+  const voiceToggle = $("voice-on");
   const petCount = $("pet-count");
   const chatLog = $("chat-history");
   const chatForm = $("chat-form");
@@ -70,6 +76,7 @@
       fed: ["Yum! Thank you~ ♥", "Fishies! Best buddy ever!"],
       copy: ["Ooh, copied! Nice find~"],
       paste: ["Pasted! You're on a roll~"],
+      undo: ["Oopsie, undone~", "Undo! No worries~"],
       missed: ["You left me all alone..."],
       welcome: ["Welcome back! I missed you~"],
       hungry: "Mochi is hungry... fish please?",
@@ -81,6 +88,7 @@
       fed: ["Oh, fish! Thanks.", "Mrrp. That hit the spot."],
       copy: ["Copied. Smart move."],
       paste: ["Pasted! Keep it up."],
+      undo: ["Undone. Happens to everyone."],
       missed: ["...You were gone a while."],
       welcome: ["There you are!"],
       hungry: "Kinda hungry over here...",
@@ -217,6 +225,81 @@
 
   downloadLink.addEventListener("click", () => installDialog.showModal());
 
+  // --- Voice (HackMp3s) ------------------------------------------------------
+
+  const VOICE_KEY = "buddy-voice";
+  const SAME_LINE_GAP_MS = 4000; // the page and the brain may both notice one thing
+  const CMD_LINE_GAP_MS = 15_000; // one copy/paste/undo line per 15s, as in UI/companion.py
+  const voice = new Audio();
+  // { trigger: { girl: [{ url, text }], boy: [...] } } from /api/voices; `text`
+  // is the clip's exact words from HackMp3s/captions.json, or null.
+  let voiceClips = {};
+  let voiceOn = true;
+  try { voiceOn = localStorage.getItem(VOICE_KEY) !== "off"; } catch {}
+  const lastClip = {}; // trigger -> url, so a line doesn't repeat back to back
+  const lastSaid = {}; // trigger -> performance.now()
+  let lineId = 0; // the line playing (or starting) now
+  let lineHeldUntil = 0; // its reaction's end: the caption stays the line's until then
+
+  fetch("/api/voices", { cache: "no-store" })
+    .then((res) => res.json())
+    .then((data) => { voiceClips = data; })
+    .catch(() => {});
+
+  // While a line plays, and until the reaction that came with it ends, the
+  // caption is the line's own words or nothing: no other text shows over it.
+  function endLine(id = lineId) {
+    if (id !== lineId) return; // a newer line took over
+    const wait = lineHeldUntil - performance.now();
+    if (wait > 0) setTimeout(() => endLine(id), wait);
+    else stage.setSpeech(null);
+  }
+  voice.addEventListener("ended", () => endLine());
+  voice.addEventListener("error", () => endLine());
+
+  function pickClip(trigger) {
+    const options = voiceClips[trigger]?.[charKey()] ?? [];
+    const fresh = options.length > 1 ? options.filter((c) => c.url !== lastClip[trigger]) : options;
+    const clip = fresh.length ? pick(fresh) : null;
+    if (clip) lastClip[trigger] = clip.url;
+    return clip;
+  }
+
+  // Show `emotion` (BuddyStage.react) and say a `trigger` line in the chosen
+  // buddy's voice, keeping the pose until the line ends. Things the user just
+  // did cut off whatever is playing; the brain's own lines (`interrupt`
+  // false) wait for silence instead. `message` only shows when nothing is
+  // being said.
+  function react(emotion, ms, message, trigger, interrupt = true) {
+    stage.react(emotion, ms, message);
+    if (!voiceOn || !trigger) return;
+    const now = performance.now();
+    // CMDC, CMDV and CMDZ share one limit.
+    const [gapKey, gap] = trigger.startsWith("CMD") ? ["CMD", CMD_LINE_GAP_MS] : [trigger, SAME_LINE_GAP_MS];
+    if (now - (lastSaid[gapKey] ?? -Infinity) < gap) return;
+    if (!interrupt && !voice.paused && !voice.ended) return;
+    const clip = pickClip(trigger);
+    if (!clip) return;
+    lastSaid[gapKey] = now;
+    const id = ++lineId;
+    lineHeldUntil = now + ms;
+    stage.setSpeech(clip.text ?? "");
+    voice.onloadedmetadata = () => {
+      const lineMs = voice.duration * 1000 + 250;
+      if (id !== lineId || lineMs <= ms) return;
+      lineHeldUntil = Math.max(lineHeldUntil, performance.now() + lineMs);
+      if (stage.isReacting(emotion)) stage.react(emotion, lineMs, message);
+    };
+    voice.src = clip.url;
+    voice.play().catch(() => {
+      // Browsers block sound until the page has been clicked once. Nothing
+      // is said then, so the written line can show.
+      if (id !== lineId) return;
+      lineHeldUntil = 0;
+      endLine(id);
+    });
+  }
+
   // --- Companion brain ------------------------------------------------------
 
   let companion = null; // latest /api/state, or null when the brain isn't running
@@ -241,10 +324,20 @@
     video: "watching videos", idle: "taking a break", other: "doing your thing",
   };
 
+  let lastVoiceId = null; // the brain's last voice line; null until the first state
+
   function renderCompanion(state) {
     // animation_bridge.py's /api/state has only animation + message: no needs to show.
     if (state && !state.pet) state = null;
     companion = state;
+    if (state) {
+      const line = state.voice;
+      // Lines said before this page opened stay unsaid.
+      if (lastVoiceId !== null && line && line.id !== lastVoiceId) {
+        react(state.animation, line.seconds * 1000, state.message, line.trigger, false);
+      }
+      lastVoiceId = line?.id ?? lastVoiceId ?? 0;
+    }
     needsBox.hidden = !state;
     treatButton.hidden = !state;
     if (!state) {
@@ -348,12 +441,12 @@
     clickTimes.push(now);
     if (clickTimes.length >= 5) {
       clickTimes.length = 0;
-      stage.react("angry", 2500, pick(lines().angry));
+      react("angry", 2500, pick(lines().angry), "unhappy");
       interact("poke");
       return;
     }
     if (stage.isReacting("angry")) return; // let the sulk finish
-    stage.react("happy", 1800, pick(lines().pet));
+    react("happy", 1800, pick(lines().pet), "happy");
     interact("pet");
     if (ext) {
       send("pet");
@@ -372,7 +465,7 @@
       return;
     }
     lastFed = Date.now();
-    stage.react("happy", 2000, food === "wet" ? "A treat!! Best day ever!" : pick(lines().fed));
+    react("happy", 2000, food === "wet" ? "A treat!! Best day ever!" : pick(lines().fed), "fed");
     if (ext) send("feed");
     else saveLocal();
     updateResting();
@@ -383,12 +476,17 @@
   treatButton.addEventListener("click", () => feed("wet"));
 
   document.addEventListener("copy", () => {
-    stage.react("encouragement", 2000, pick(lines().copy));
+    react("encouragement", 2000, pick(lines().copy), "CMDC");
     interact("copy_paste");
   });
   document.addEventListener("paste", () => {
-    stage.react("encouragement", 2000, pick(lines().paste));
+    react("encouragement", 2000, pick(lines().paste), "CMDV");
     interact("copy_paste");
+  });
+  document.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.repeat && e.key.toLowerCase() === "z") {
+      react("encouragement", 2000, pick(lines().undo), "CMDZ");
+    }
   });
 
   let lastPresence = 0;
@@ -412,7 +510,7 @@
       hiddenAt = Date.now();
     } else if (hiddenAt && Date.now() - hiddenAt > WELCOME_AFTER_MS) {
       stage.react("sad", 1800, pick(lines().missed));
-      setTimeout(() => stage.react("happy", 1600, pick(lines().welcome)), 1800);
+      setTimeout(() => react("happy", 1600, pick(lines().welcome), "onReturn"), 1800);
     }
   });
 
@@ -443,6 +541,17 @@
   }
 
   showOnSites.addEventListener("change", () => setPrefs({ ...prefs, visible: showOnSites.checked }));
+
+  voiceToggle.checked = voiceOn;
+  voiceToggle.addEventListener("change", () => {
+    voiceOn = voiceToggle.checked;
+    if (!voiceOn) {
+      voice.pause();
+      lineHeldUntil = 0;
+      endLine();
+    }
+    try { localStorage.setItem(VOICE_KEY, voiceOn ? "on" : "off"); } catch {}
+  });
 
   function renderSettings() {
     for (const btn of choices) {

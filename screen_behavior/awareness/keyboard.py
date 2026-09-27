@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import platform
+import threading
 from collections import deque
 from dataclasses import dataclass
 from threading import Lock
 from time import monotonic
+from types import SimpleNamespace
 from typing import Callable
 
 from screen_behavior.awareness.models import KeyboardActivity, Shortcut
@@ -174,9 +176,92 @@ class KeyboardActivityTracker:
             self._timestamps.popleft()
 
 
+class MacKeyTap:
+    """
+    macOS key listener: a listen-only Quartz event tap on its own thread.
+
+    Hands `on_key` only the physical key code and whether Cmd / Ctrl were
+    held; characters are never read. Needs the Input Monitoring permission
+    (System Settings > Privacy & Security > Input Monitoring) for the app
+    that runs Python, usually the terminal.
+    """
+
+    def __init__(self, on_key: Callable[[int, bool, bool], None]) -> None:
+        self._on_key = on_key
+        self._tap = None
+        self._run_loop = None
+
+    def start(self) -> str:
+        """Returns "on", "needs_permission" or "unavailable"."""
+        try:
+            import Quartz
+        except ImportError:  # pyobjc-framework-Quartz (pywebview installs it)
+            return "unavailable"
+
+        if not Quartz.CGPreflightListenEventAccess():
+            # Lists this app under Input Monitoring and asks once. macOS
+            # applies the permission after the app restarts.
+            Quartz.CGRequestListenEventAccess()
+            return "needs_permission"
+
+        ready = threading.Event()
+        threading.Thread(target=self._run, args=(ready,), name="mac-key-tap", daemon=True).start()
+        ready.wait(timeout=2.0)
+        return "on" if self._tap is not None else "unavailable"
+
+    def stop(self) -> None:
+        if self._run_loop is not None:
+            import Quartz
+
+            Quartz.CFRunLoopStop(self._run_loop)
+            self._run_loop = None
+
+    def _callback(self, proxy, event_type, event, refcon):
+        import Quartz
+
+        if event_type in (Quartz.kCGEventTapDisabledByTimeout, Quartz.kCGEventTapDisabledByUserInput):
+            Quartz.CGEventTapEnable(self._tap, True)
+        elif not Quartz.CGEventGetIntegerValueField(event, Quartz.kCGKeyboardEventAutorepeat):
+            flags = Quartz.CGEventGetFlags(event)
+            try:
+                self._on_key(
+                    Quartz.CGEventGetIntegerValueField(event, Quartz.kCGKeyboardEventKeycode),
+                    bool(flags & Quartz.kCGEventFlagMaskCommand),
+                    bool(flags & Quartz.kCGEventFlagMaskControl),
+                )
+            except Exception:
+                pass  # never let a bug here stall the tap
+        return event
+
+    def _run(self, ready: threading.Event) -> None:
+        import Quartz
+
+        try:
+            self._tap = Quartz.CGEventTapCreate(
+                Quartz.kCGSessionEventTap,
+                Quartz.kCGHeadInsertEventTap,
+                Quartz.kCGEventTapOptionListenOnly,
+                Quartz.CGEventMaskBit(Quartz.kCGEventKeyDown),
+                self._callback,
+                None,
+            )
+            if self._tap is not None:
+                source = Quartz.CFMachPortCreateRunLoopSource(None, self._tap, 0)
+                self._run_loop = Quartz.CFRunLoopGetCurrent()
+                Quartz.CFRunLoopAddSource(self._run_loop, source, Quartz.kCFRunLoopCommonModes)
+                Quartz.CGEventTapEnable(self._tap, True)
+        except Exception:
+            self._tap = None
+        finally:
+            ready.set()
+        if self._tap is not None:
+            Quartz.CFRunLoopRun()
+
+
 class GlobalKeyboardMonitor:
     """
-    Cross-platform listener using pynput.
+    System-wide key listener: a Quartz event tap on macOS (MacKeyTap),
+    pynput everywhere else.
 
     Every keypress becomes `tracker.record_keypress()` with no key identity.
     Ctrl/Cmd + C, V, Z additionally becomes `tracker.record_shortcut()`.
@@ -187,10 +272,17 @@ class GlobalKeyboardMonitor:
         self._listener = None
         self._modifiers_held: set[str] = set()
         self._is_mac = platform.system() == "Darwin"
+        # "on", "needs_permission" (macOS Input Monitoring), "unavailable",
+        # or "off" before start().
+        self.status = "off"
 
     def start(self) -> None:
-        if platform.system() == "Darwin" and not self._mac_permission_looks_available():
-            self.tracker.set_monitoring_available(False)
+        if self._is_mac:
+            tap = MacKeyTap(self._on_mac_key)
+            self.status = tap.start()
+            if self.status == "on":
+                self._listener = tap
+            self.tracker.set_monitoring_available(self.status == "on")
             return
 
         try:
@@ -225,9 +317,11 @@ class GlobalKeyboardMonitor:
             self._listener.daemon = True
             self._listener.start()
             self.tracker.set_monitoring_available(True)
+            self.status = "on"
         except Exception:
             self._listener = None
             self.tracker.set_monitoring_available(False)
+            self.status = "unavailable"
 
     def stop(self) -> None:
         if self._listener is not None:
@@ -236,22 +330,10 @@ class GlobalKeyboardMonitor:
             finally:
                 self._listener = None
 
-    @staticmethod
-    def _mac_permission_looks_available() -> bool:
-        """
-        Best-effort privacy check. We do not bypass macOS privacy controls.
-        If the API is unavailable, let pynput attempt normal startup.
-        """
-        try:
-            # AXIsProcessTrusted lives in ApplicationServices, not Quartz.
-            import ApplicationServices
-            import Quartz
-
-            listen_check = getattr(Quartz, "CGPreflightListenEventAccess", None)
-            input_monitoring = bool(listen_check()) if listen_check else False
-            return (
-                bool(ApplicationServices.AXIsProcessTrusted())
-                or input_monitoring
-            )
-        except Exception:
-            return True
+    def _on_mac_key(self, keycode: int, command: bool, control: bool) -> None:
+        self.tracker.record_keypress()
+        held = {name for name, down in (("cmd", command), ("ctrl", control)) if down}
+        shortcut = shortcut_for_key(SimpleNamespace(vk=keycode, char=None), held, is_mac=True)
+        if shortcut is not None:
+            self.tracker.record_shortcut(shortcut)
+        # The key code is discarded here.

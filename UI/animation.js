@@ -13,6 +13,9 @@
 //   2. The user. app.js calls BuddyStage.react() for headpats, pokes, chat,
 //      feeding and so on, which plays that emotion's animation for a moment
 //      on top of the resting pose.
+//
+// While a voice line plays, BuddyStage.setSpeech() pins the caption to that
+// line's own words (or none), so the buddy never shows other text over it.
 
 (() => {
   const B = globalThis.BuddyCharacters;
@@ -43,6 +46,7 @@
   let defaultCaption = "";
   let reaction = null; // { emotion, message, until }
   let reactionTimer = 0;
+  let speech = null; // caption while a voice line plays ("" = no text), else null
   const stateListeners = [];
 
   figure.addEventListener("load", () => {
@@ -65,8 +69,8 @@
     figure.className = `buddy-figure emo-${emotion}${reacting ? " react" : ""}`;
     poke.classList.toggle("floating", state === "lounging");
 
-    caption.textContent = reacting && reaction.message
-      ? reaction.message
+    caption.textContent = speech !== null ? speech
+      : reacting && reaction.message ? reaction.message
       : python?.message ?? defaultCaption;
     poke.setAttribute(
       "aria-label",
@@ -126,6 +130,11 @@
     },
     setDefaultCaption(text) {
       defaultCaption = text;
+      render();
+    },
+    // The words of the voice line playing now ("" for none), or null when silent.
+    setSpeech(text) {
+      speech = text;
       render();
     },
   };

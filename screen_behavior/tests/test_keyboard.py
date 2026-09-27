@@ -1,9 +1,14 @@
+import importlib.util
+import sys
 import unittest
 
 from types import SimpleNamespace
+from unittest import mock
 
 from screen_behavior.awareness.keyboard import (
+    GlobalKeyboardMonitor,
     KeyboardActivityTracker,
+    MacKeyTap,
     modifier_name,
     shortcut_for_key,
 )
@@ -211,6 +216,60 @@ class ShortcutDetectionTests(unittest.TestCase):
         self.assertIsNone(snapshot.last_shortcut)
         self.assertIsNone(snapshot.seconds_since_last_shortcut)
         self.assertEqual(snapshot.shortcut_counts, {})
+
+
+class MacKeyTapTests(unittest.TestCase):
+    """The macOS listener (a Quartz event tap) sees keys in every app."""
+
+    def monitor(self):
+        monitor = GlobalKeyboardMonitor(KeyboardActivityTracker(clock=FakeClock()))
+        monitor.tracker.set_monitoring_available(True)
+        return monitor
+
+    def test_cmd_c_v_z_from_key_codes(self):
+        monitor = self.monitor()
+        for keycode, shortcut in ((8, Shortcut.COPY), (9, Shortcut.PASTE), (6, Shortcut.UNDO)):
+            with self.subTest(shortcut=shortcut):
+                monitor._on_mac_key(keycode, command=True, control=False)
+                self.assertEqual(monitor.tracker.snapshot().last_shortcut, shortcut)
+
+    def test_typing_counts_keys_but_is_not_a_shortcut(self):
+        monitor = self.monitor()
+        monitor._on_mac_key(8, command=False, control=False)  # plain "c"
+        monitor._on_mac_key(0, command=True, control=False)   # Cmd+A
+        snapshot = monitor.tracker.snapshot()
+        self.assertEqual(snapshot.keypresses_last_5_seconds, 2)
+        self.assertEqual(snapshot.shortcut_counts, {})
+
+    def test_asks_for_input_monitoring_when_missing(self):
+        quartz = SimpleNamespace(
+            CGPreflightListenEventAccess=lambda: False,
+            CGRequestListenEventAccess=mock.Mock(),
+        )
+        monitor = self.monitor()
+        monitor._is_mac = True
+        with mock.patch.dict(sys.modules, {"Quartz": quartz}):
+            monitor.start()
+        quartz.CGRequestListenEventAccess.assert_called_once()
+        self.assertEqual(monitor.status, "needs_permission")
+        self.assertFalse(monitor.tracker.snapshot().monitoring_available)
+
+    @unittest.skipUnless(importlib.util.find_spec("Quartz"), "needs pyobjc (macOS)")
+    def test_real_mac_key_events(self):
+        import Quartz
+
+        monitor = self.monitor()
+        tap = MacKeyTap(monitor._on_mac_key)
+
+        def press(keycode, flags, repeat=False):
+            event = Quartz.CGEventCreateKeyboardEvent(None, keycode, True)
+            Quartz.CGEventSetFlags(event, flags)
+            Quartz.CGEventSetIntegerValueField(event, Quartz.kCGKeyboardEventAutorepeat, int(repeat))
+            tap._callback(None, Quartz.kCGEventKeyDown, event, None)
+
+        press(9, Quartz.kCGEventFlagMaskCommand)
+        press(9, Quartz.kCGEventFlagMaskCommand, repeat=True)  # holding Cmd+V
+        self.assertEqual(monitor.tracker.snapshot().shortcut_counts, {Shortcut.PASTE: 1})
 
 
 if __name__ == "__main__":
